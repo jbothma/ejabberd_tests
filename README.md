@@ -12,8 +12,8 @@ Test dependency setup
 
 The MySQL database schema is in ejabberd/apps/ejabberd/priv/mysql.sql.
 
-The variable table_type has been removed in MySQL 5.2 and should be replaced
-with storage_engine in this version and later.
+The `table_type` variable has been removed in MySQL 5.2 and should be replaced
+with `storage_engine` in this version and later.
 
 ### Redis
 
@@ -34,4 +34,4 @@ To avoid installing everything on your development machine, you could forward
 ports to some other machine where you can run a server. For example, for MySQL,
 run
 
-  ssh -L 3306:localhost:3306 mysql.server.hostname
+    ssh -L 3306:localhost:3306 mysql.server.hostname

@@ -1,0 +1,18 @@
+dn: ou=People,dc=example,dc=com
+objectClass: organizationalUnit
+ou: People
+
+dn: uid=john,ou=People,dc=example,dc=com
+objectClass: inetOrgPerson
+objectClass: shadowAccount
+uid: john
+sn: Doe
+givenName: John
+cn: John Doe
+displayName: John Doe
+userPassword: johnldap
+
+dn: cn=config
+changetype: modify
+add: olcLogLevel
+olcLogLevel: stats

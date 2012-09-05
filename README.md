@@ -37,18 +37,44 @@ Configure LDAP to authenticate the test user
 
     sudo ldapadd -x -D cn=admin,dc=example,dc=com -W -f priv/ejabberd.ldif
 
-Now you can do a quick test
+#### When installing OpenLDAP from sources:
 
-    $ erl
-    Erlang R15B01 ...
-    
-    Eshell V5.9.1  (abort with ^G)
-    1> {ok, Handle} = eldap:open(["192.168.56.102"]).
-    {ok,<0.33.0>}
-    2> eldap:simple_bind(Handle, "uid=john,ou=People,dc=example,dc=com","johnldap").
-    ok
-    3> eldap:simple_bind(Handle, "uid=john,ou=People,dc=example,dc=com","johnlda"). 
-    {error,invalidCredentials}
+It might be necessary to make some modifications to default `etc/slapd.conf`.
+First of all, you need 4 schemas and they have to be placed in config
+in right order.
+
+    include     [PREFIX]/etc/openldap/schema/core.schema
+    include     [PREFIX]/etc/openldap/schema/cosine.schema
+    include     [PREFIX]/etc/openldap/schema/inetorgperson.schema
+    include     [PREFIX]/etc/openldap/schema/nis.schema
+
+`[PREFIX]` should be replaced with OpenLDAP installation directory.
+
+You will also need to set domain name. Navigate to the bottom
+of the file and set following lines:
+
+    suffix      "dc=example,dc=com"
+    rootdn      "cn=admin,dc=example,dc=com"
+
+Next, use `slappasswd` and paste its whole output (including `{SSHA}`)
+after `rootpw`:
+
+    rootpw  {SSHA}SomeHashHere
+
+It might be necessary to `ldapadd` another file before `priv/ejabberd.ldif`.
+If `ldapadd priv/ejabberd.ldif` fails, create new file named `initial.ldif`
+with following contents:
+
+    dn: dc=example,dc=com
+    objectclass: dcObject
+    objectclass: organization
+    o: Example Company
+    dc: example
+
+And run:
+
+    sudo ldapadd -x -D cn=admin,dc=example,dc=com -W -f initial.ldiff
+
 
 Running test dependencies elsewhere
 -----------------------------------

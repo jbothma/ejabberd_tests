@@ -28,7 +28,9 @@ all() ->
     [{group, login}].
 
 groups() ->
-    [{login, [sequence], [login]}].
+    [{login, [sequence], [login
+                          ,login_negative
+                         ]}].
 
 suite() ->
     escalus:suite().
@@ -38,14 +40,7 @@ suite() ->
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    Users = {escalus_users, [{john, [
-                                     {username, <<"john">>},
-                                     {server, <<"example.com">>},
-                                     {password, <<"johnldap">>},
-                                     {host, <<"localhost">>}]}
-                            ]},
-    Config2 = proplists:delete(escalus_users, Config),
-    escalus:init_per_suite([Users|Config2]).
+    escalus:init_per_suite(Config).
 
 end_per_suite(Config) ->
     escalus:end_per_suite(Config).
@@ -60,8 +55,19 @@ end_per_testcase(CaseName, Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-login(Config) ->
-    escalus:story(Config, [1], fun(John) ->
-        escalus_client:send(John, escalus_stanza:chat_to(John, <<"Hi!">>)),
-        escalus:assert(is_chat_message, [<<"Hi!">>], escalus_client:wait_for_stanza(John))
-    end).
+login(_Config) ->
+    John = [
+            {username, <<"john">>},
+            {server, <<"example.com">>},
+            {password, <<"johnldap">>},
+            {host, <<"localhost">>}],
+    {ok, _, _} = escalus_connection:start(John).
+
+login_negative(_Config) ->
+    JohnBad = [
+               {username, <<"john">>},
+               {server, <<"example.com">>},
+               {password, <<"wrong_password">>},
+               {host, <<"localhost">>}],
+    {error, _} = escalus_connection:start(JohnBad).
+

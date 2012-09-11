@@ -11,3 +11,53 @@ givenName: John
 cn: John Doe
 displayName: John Doe
 userPassword: johnldap
+description: active
+shadowFlag: 1
+
+dn: uid=tom,ou=People,dc=example,dc=com
+objectClass: inetOrgPerson
+objectClass: shadowAccount
+uid: tom
+sn: Smith
+givenName: Tom
+cn: Tom Smith
+displayName: Tom Smith
+userPassword: tomldap
+description: inactive
+shadowFlag: 1
+
+dn: uid=mark,ou=People,dc=example,dc=com
+objectClass: inetOrgPerson
+objectClass: shadowAccount
+uid: mark
+sn: Vivid
+givenName: Mark
+cn: Mark Vivid
+displayName: Mark Vivid
+userPassword: markldap
+description: active
+shadowFlag: 0
+
+dn: uid=ann,ou=People,dc=example,dc=com
+objectClass: inetOrgPerson
+objectClass: shadowAccount
+uid: ann
+sn: Jabber
+givenName: Ann
+cn: Ann Jabber
+displayName: Ann T. Jabber
+userPassword: annldap
+description: active
+shadowFlag: 1
+
+dn: uid=claire,ou=People,dc=example,dc=com
+objectClass: inetOrgPerson
+objectClass: shadowAccount
+uid: claire
+sn: Cox
+givenName: Claire
+cn: Claire Cox
+displayName: Claire Cox
+userPassword: claireldap
+description: active
+shadowFlag: 1

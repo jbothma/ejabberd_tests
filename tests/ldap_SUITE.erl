@@ -28,9 +28,14 @@ all() ->
     [{group, login}].
 
 groups() ->
-    [{login, [sequence], [login
-                          ,login_negative
-                         ]}].
+    [{login, [], [
+                  login,
+                  login_negative,
+                  login_fail_filter,
+                  login_fail_dn_filter,
+                  login_fail_local_filter
+                  ]
+    }].
 
 suite() ->
     escalus:suite().
@@ -70,4 +75,34 @@ login_negative(_Config) ->
                {password, <<"wrong_password">>},
                {host, <<"localhost">>}],
     {error, _} = escalus_connection:start(JohnBad).
+
+login_fail_filter(_Config) ->
+    ClaireBad = [
+                    {username, <<"claire">>},
+                    {server, <<"example.com">>},
+                    {password, <<"claireldap">>},
+                    {host, <<"localhost">>}],
+    {error, _} = escalus_connection:start(ClaireBad).
+
+login_fail_dn_filter(_Config) ->
+    AnnBad = [
+                    {username, <<"ann">>},
+                    {server, <<"example.com">>},
+                    {password, <<"annldap">>},
+                    {host, <<"localhost">>}],
+    {error, _} = escalus_connection:start(AnnBad).
+
+login_fail_local_filter(_Config) ->
+    TomBad = [
+                    {username, <<"tom">>},
+                    {server, <<"example.com">>},
+                    {password, <<"tomldap">>},
+                    {host, <<"localhost">>}],
+    {error, _} = escalus_connection:start(TomBad),
+    MarkBad = [
+                    {username, <<"mark">>},
+                    {server, <<"example.com">>},
+                    {password, <<"markldap">>},
+                    {host, <<"localhost">>}],
+    {error, _} = escalus_connection:start(TomBad).
 

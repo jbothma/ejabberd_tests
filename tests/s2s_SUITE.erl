@@ -18,7 +18,19 @@ all() ->
     [{group, s2s_tests}].
 
 all_tests() ->
-    [simple_message, nonexistent_user, unknown_domain].
+    [
+     simple_message,
+     nonexistent_user,
+     unknown_domain,
+     nonascii_addr,
+     destination_domain_doesnt_match_cert,
+     v1_skip_starttls_and_sasl,
+     v1_skip_starttls_try_sasl,
+     v1_do_starttls_skip_sasl,
+     v1_do_starttls_and_sasl,
+     v1_do_starttls_and_sasl_domain_doesnt_match_cert,
+     v1_do_starttls_and_sasl_route_other_domain
+    ].
 
 groups() ->
     [{s2s_tests, [sequence], all_tests()}].
@@ -122,3 +134,167 @@ nonascii_addr(Config) ->
         escalus:assert(is_chat_message, [<<"Miło Cię poznać">>], Stanza2)
 
     end).
+
+%%
+%% This depends on node2 being the server for kate's domain, but
+%% kate's hostname not being in the certificate used for serving that domain
+%%
+destination_domain_doesnt_match_cert(Config) ->
+    escalus:story(Config, [{alice, 1}, {kate2, 1}], fun(Alice, Kate) ->
+
+        escalus:send(Alice,
+                     escalus_stanza:chat_to(Kate, <<"Hello!">>)),
+
+        %% Kate never receives the message
+        Error = (catch escalus:wait_for_stanza(Kate)),
+        assert_timeout_when_waiting_for_stanza(Error)
+    end).
+
+
+v1_skip_starttls_and_sasl(Config) ->
+    Fun =
+        fun(Alice2) ->
+                {ok, Conn0, Props0} =
+                    escalus_connection:connect(server_props()),
+                {_Props1, _Features} =
+                    escalus_session:start_stream(Conn0, Props0),
+
+                Message = escalus_stanza:chat(
+                            <<"alice@localhost">>,
+                            <<"alice@localhost2">>,
+                            <<"Hello via v1.0 no StartTLS no SASL!">>),
+
+                escalus_connection:send(Conn0, Message),
+
+                Error = (catch escalus:wait_for_stanza(Alice2)),
+                assert_timeout_when_waiting_for_stanza(Error)
+        end,
+    escalus:story(Config, [{alice2, 1}], Fun).
+
+v1_skip_starttls_try_sasl(Config) ->
+    Fun =
+        fun(Alice2) ->
+                {ok, Conn0, Props0} =
+                    escalus_connection:connect(server_props()),
+                {Props1, _Features} =
+                    escalus_session:start_stream(Conn0, Props0),
+                {timeout, auth_reply} =
+                    (catch escalus_session:authenticate(Conn0, Props1)),
+
+                Message = escalus_stanza:chat(
+                            <<"alice@localhost">>,
+                            <<"alice@localhost2">>,
+                            <<"Hello via v1.0 skip StartTLS try SASL!">>),
+
+                escalus_connection:send(Conn0, Message),
+
+                Error = (catch escalus:wait_for_stanza(Alice2)),
+                assert_timeout_when_waiting_for_stanza(Error)
+        end,
+    escalus:story(Config, [{alice2, 1}], Fun).
+
+v1_do_starttls_skip_sasl(Config) ->
+    Fun =
+        fun(Alice2) ->
+                {ok, Conn0, Props0} =
+                    escalus_connection:connect(server_props()),
+                {Props1, _Features} =
+                    escalus_session:start_stream(Conn0, Props0),
+                {Conn1, _Props2} = escalus_session:starttls(Conn0, Props1),
+
+                Message = escalus_stanza:chat(
+                            <<"alice@localhost">>,
+                            <<"alice@localhost2">>,
+                            <<"Hello via v1.0 do StartTLS skip SASL!">>),
+
+                escalus_connection:send(Conn1, Message),
+
+                Error = (catch escalus:wait_for_stanza(Alice2)),
+                assert_timeout_when_waiting_for_stanza(Error)
+        end,
+    escalus:story(Config, [{alice2, 1}], Fun).
+
+v1_do_starttls_and_sasl(Config) ->
+    Fun =
+        fun(Alice2) ->
+                {ok, Conn0, Props0} =
+                    escalus_connection:connect(server_props()),
+                {Props1, _Features} =
+                    escalus_session:start_stream(Conn0, Props0),
+                {Conn1, Props2} = escalus_session:starttls(Conn0, Props1),
+                _Props3 = escalus_session:authenticate(Conn1, Props2),
+
+                Message = escalus_stanza:chat(
+                            <<"alice@localhost">>,
+                            <<"alice@localhost2">>,
+                            <<"Hello via v1.0 do StartTLS and SASL!">>),
+
+                escalus_connection:send(Conn1, Message),
+
+                MsgStanza = (catch escalus:wait_for_stanza(Alice2)),
+                escalus:assert(is_chat_message,
+                               [<<"Hello via v1.0 do StartTLS and SASL!">>],
+                               MsgStanza)
+        end,
+    escalus:story(Config, [{alice2, 1}], Fun).
+
+v1_do_starttls_and_sasl_domain_doesnt_match_cert(_Config) ->
+    BadDomain = <<"localhostblah">>,
+    Props = lists:keyreplace(endpoint, 1,
+                             server_props(),
+                             {endpoint, {server, BadDomain}}),
+
+    {ok, Conn0, Props0} = escalus_connection:connect(Props),
+    {Props1, _Features} = escalus_session:start_stream(Conn0, Props0),
+    {Conn1, Props2} = escalus_session:starttls(Conn0, Props1),
+    {auth_failed, BadDomain, _} =
+        (catch escalus_session:authenticate(Conn1, Props2)),
+
+    %% receiver MUST close connection after optional retries [RFC3920]
+    %% ejabberd closes the connection straight after failure,
+    %% it's not like the originating server is going to retry with
+    %% a new cert anyway
+
+    %% sleeping is horrid but... :S
+    receive after 500 -> ok end,
+    false = escalus_connection:is_connected(Conn1).
+
+
+v1_do_starttls_and_sasl_route_other_domain(Config) ->
+    Fun =
+        fun(Alice2) ->
+                {ok, Conn0, Props0} =
+                    escalus_connection:connect(server_props()),
+                {Props1, _Features} =
+                    escalus_session:start_stream(Conn0, Props0),
+                {Conn1, Props2} = escalus_session:starttls(Conn0, Props1),
+                _Props3 = escalus_session:authenticate(Conn1, Props2),
+
+                Message = escalus_stanza:chat(
+                            <<"alice@google.com">>,
+                            <<"alice@localhost2">>,
+                            <<"Hello from a spoofed domain">>),
+
+                escalus_connection:send(Conn1, Message),
+
+                Error = (catch escalus:wait_for_stanza(Alice2)),
+                assert_timeout_when_waiting_for_stanza(Error)
+        end,
+    escalus:story(Config, [{alice2, 1}], Fun).
+
+
+
+
+
+assert_timeout_when_waiting_for_stanza(Error) ->
+    {'EXIT', {timeout_when_waiting_for_stanza,_}} = Error.
+
+
+server_props() ->
+    [{endpoint, {server, <<"localhost">>}},
+     {server, <<"localhost2">>},
+     {host, <<"localhost">>},
+     {ssl_opts, [{certfile,"/tmp/node1.pem"}]},
+     {auth, {escalus_auth, auth_sasl_external}},
+     {port, 5279}
+    ].

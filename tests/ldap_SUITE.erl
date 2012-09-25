@@ -77,6 +77,7 @@ login_negative(_Config) ->
     {error, _} = escalus_connection:start(JohnBad).
 
 login_fail_filter(_Config) ->
+    %% Claire fails on uid: claire
     ClaireBad = [
                     {username, <<"claire">>},
                     {server, <<"example.com">>},
@@ -85,6 +86,7 @@ login_fail_filter(_Config) ->
     {error, _} = escalus_connection:start(ClaireBad).
 
 login_fail_dn_filter(_Config) ->
+    %% Ann fails on cn =/= displayName
     AnnBad = [
                     {username, <<"ann">>},
                     {server, <<"example.com">>},
@@ -93,16 +95,17 @@ login_fail_dn_filter(_Config) ->
     {error, _} = escalus_connection:start(AnnBad).
 
 login_fail_local_filter(_Config) ->
+    %% Tom fails on description: inactive
     TomBad = [
                     {username, <<"tom">>},
                     {server, <<"example.com">>},
                     {password, <<"tomldap">>},
                     {host, <<"localhost">>}],
     {error, _} = escalus_connection:start(TomBad),
+    %% Mark fails on shadowFlag: 1
     MarkBad = [
                     {username, <<"mark">>},
                     {server, <<"example.com">>},
                     {password, <<"markldap">>},
                     {host, <<"localhost">>}],
-    {error, _} = escalus_connection:start(TomBad).
-
+    {error, _} = escalus_connection:start(MarkBad).

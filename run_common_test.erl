@@ -24,6 +24,7 @@ ct() ->
             ok
     end,
     init:stop(0).
+
 ct_cover() ->
     run_ct_covers(get_tested_nodes()),
     init:stop(0).
@@ -53,6 +54,7 @@ run_ct_cover(Node) ->
 
 run_ct_cover1() ->
     run_ct_cover1(none).
+
 run_ct_cover1(Node) ->
     prepare(),
     ct:run_test(tests_to_run(Node)),
@@ -155,15 +157,18 @@ get_node_str(Node) -> atom_to_list(Node).
 run_ejabberd({_Node, StartCmd, _}) ->
     do_start_cmd(StartCmd);
 run_ejabberd(Node) ->
-    StartCmd = lists:flatten(io_lib:format("../dev/ejabberd_~p/bin/ejabberd start", [Node])),
-    do_start_cmd(StartCmd).
+    do_start_cmd(node_cmd(Node, "start")).
 
 do_start_cmd(StartCmd) ->
     Status = os:cmd(StartCmd),
     timer:sleep(3000),
     Status.
+
 stop_ejabberd({_Node, _, StopCmd}) ->
     os:cmd(StopCmd);
 stop_ejabberd(Node) ->
-    StopCmd = lists:flatten(io_lib:format("../dev/ejabberd_~p/bin/ejabberd stop", [Node])),
-    os:cmd(StopCmd).
+    os:cmd(node_cmd(Node, "stop")).
+
+node_cmd(Node, Cmd) ->
+    lists:flatten(io_lib:format("../../dev/ejabberd_~p/bin/ejabberd ~s",
+                                [Node, Cmd])).

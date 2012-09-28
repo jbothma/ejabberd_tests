@@ -19,23 +19,29 @@
 
 -include_lib("escalus/include/escalus.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("exml/include/exml.hrl").
 
 %%--------------------------------------------------------------------
 %% Suite configuration
 %%--------------------------------------------------------------------
 
 all() ->
-    [{group, login}].
+    [%{group, auth},
+     {group, vcard}].
 
 groups() ->
-    [{login, [], [
-                  login,
-                  login_negative,
-                  login_fail_filter,
-                  login_fail_dn_filter,
-                  login_fail_local_filter
-                  ]
-    }].
+    [{auth, [], [
+                 login,
+                 login_negative,
+                 login_fail_filter,
+                 login_fail_dn_filter,
+                 login_fail_local_filter
+                ]},
+     {vcard, [], [
+                  bob
+                 ]}
+    ].
+
 
 suite() ->
     escalus:suite().
@@ -57,7 +63,7 @@ end_per_testcase(CaseName, Config) ->
     escalus:end_per_testcase(CaseName, Config).
 
 %%--------------------------------------------------------------------
-%% Test cases
+%% Authentication Test cases
 %%--------------------------------------------------------------------
 
 login(_Config) ->
@@ -109,3 +115,32 @@ login_fail_local_filter(_Config) ->
                     {password, <<"markldap">>},
                     {host, <<"localhost">>}],
     {error, _} = escalus_connection:start(MarkBad).
+
+%%--------------------------------------------------------------------
+%% VCard Test cases
+%%--------------------------------------------------------------------
+
+bob(Config) ->
+    _Config = [{escalus_users,
+               [{john,
+                 [{username, <<"john">>},
+                  {server, <<"example.com">>},
+                  {password, <<"johnldap">>}
+                 ]}
+               ]}
+             ],
+    escalus:story(
+      Config, [{john, 1}],
+      fun(John) ->
+              IQGet = escalus_stanza:iq(
+                        <<"get">>, [#xmlelement{
+                                       name = <<"vCard">>,
+                                       attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
+                                       children = []
+                                      }]),
+              ct:pal("~p~n",[IQGet]),
+              escalus:send(John, IQGet),
+              Stanza = escalus:wait_for_stanza(John),
+              %%escalus_new_assert:assert(is_sic_response(), Stanza)
+              ct:pal("~p~n",[Stanza])
+      end).

@@ -26,8 +26,7 @@
 %%--------------------------------------------------------------------
 
 all() ->
-    [%{group, auth},
-     {group, vcard}].
+    [{group, auth}].
 
 groups() ->
     [{auth, [], [
@@ -36,10 +35,7 @@ groups() ->
                  login_fail_filter,
                  login_fail_dn_filter,
                  login_fail_local_filter
-                ]},
-     {vcard, [], [
-                  bob
-                 ]}
+                ]}
     ].
 
 
@@ -115,32 +111,3 @@ login_fail_local_filter(_Config) ->
                     {password, <<"markldap">>},
                     {host, <<"localhost">>}],
     {error, _} = escalus_connection:start(MarkBad).
-
-%%--------------------------------------------------------------------
-%% VCard Test cases
-%%--------------------------------------------------------------------
-
-bob(Config) ->
-    _Config = [{escalus_users,
-               [{john,
-                 [{username, <<"john">>},
-                  {server, <<"example.com">>},
-                  {password, <<"johnldap">>}
-                 ]}
-               ]}
-             ],
-    escalus:story(
-      Config, [{john, 1}],
-      fun(John) ->
-              IQGet = escalus_stanza:iq(
-                        <<"get">>, [#xmlelement{
-                                       name = <<"vCard">>,
-                                       attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
-                                       children = []
-                                      }]),
-              ct:pal("~p~n",[IQGet]),
-              escalus:send(John, IQGet),
-              Stanza = escalus:wait_for_stanza(John),
-              %%escalus_new_assert:assert(is_sic_response(), Stanza)
-              ct:pal("~p~n",[Stanza])
-      end).

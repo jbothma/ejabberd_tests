@@ -29,13 +29,20 @@ all() ->
     [{group, vcard}].
 
 groups() ->
-    [{vcard, [], [
-                  bob
+    [{vcard, [], [bob,
+                  retrieve_own_card
+                  ,card_doesnt_exist
+                  ,update_card
+                  ,retrieve_others_card
+                  ,service_discovery
                  ]}
     ].
 
 suite() ->
     escalus:suite().
+
+%% Element CData
+-define(EL_CD(Element, Name), exml_query:path(Element, [{element, Name}, cdata])).
 
 %%--------------------------------------------------------------------
 %% Init & teardown
@@ -74,10 +81,42 @@ bob(Config) ->
               escalus:send(John, IQGet),
               Stanza = escalus:wait_for_stanza(John),
               %%escalus_new_assert:assert(is_sic_response(), Stanza)
-              ct:pal("~p~n",[Stanza])
+              ct:pal("~p~n",[Stanza]),
+
+              escalus_pred:is_iq(<<"result">>, Stanza),
+
+              VCard = exml_query:path(Stanza, [{element, <<"vCard">>}]),
+              <<"john">> = ?EL_CD(VCard, <<"NICKNAME">>),
+              <<"Doe, John">> = ?EL_CD(VCard, <<"FN">>),
+              <<"1966-08-06">> = ?EL_CD(VCard, <<"BDAY">>),
+              <<"john@example.com">> = ?EL_CD(VCard, <<"JABBERID">>),
+              <<"Executive Director">> = ?EL_CD(VCard, <<"TITLE">>),
+              <<"Patron Saint">> = ?EL_CD(VCard, <<"ROLE">>),
+              <<"I am sam.">> = ?EL_CD(VCard, <<"DESC">>),
+              <<"http://john.doe/">> = ?EL_CD(VCard, <<"URL">>),
+
+
+              EMAIL = exml_query:path(VCard, [{element, <<"EMAIL">>}]),
+              <<"john@mail.example.com">> = ?EL_CD(EMAIL, <<"USERID">>),
+
+              N = exml_query:path(VCard, [{element, <<"N">>}]),
+              <<"Doe">> = ?EL_CD(N, <<"FAMILY">>),
+              <<"John">> = ?EL_CD(N, <<"GIVEN">>),
+              <<"E.">> = ?EL_CD(N, <<"MIDDLE">>),
+
+              ADR = exml_query:path(VCard, [{element, <<"ADR">>}]),
+              <<"1899 Wynkoop Street">> = ?EL_CD(ADR, <<"STREET">>),
+              <<"Denver">> = ?EL_CD(ADR, <<"LOCALITY">>),
+              <<"CO">> = ?EL_CD(ADR, <<"REGION">>),
+              <<"91210">> = ?EL_CD(ADR, <<"PCODE">>),
+              <<"US of A">> = ?EL_CD(ADR, <<"CTRY">>),
+
+              TEL = exml_query:path(VCard, [{element, <<"TEL">>}]),
+              <<"303-308-3282">> = ?EL_CD(TEL, <<"NUMBER">>)
       end).
+
+
 
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
-

@@ -42,7 +42,9 @@ suite() ->
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    escalus:init_per_suite(Config).
+    Users = escalus_config:get_config(escalus_ldap_users, Config, []),
+    NewConfig = lists:keystore(escalus_users, 1, Config, {escalus_users, Users}),
+    escalus:init_per_suite(NewConfig).
 
 end_per_suite(Config) ->
     escalus:end_per_suite(Config).
@@ -59,16 +61,8 @@ end_per_testcase(CaseName, Config) ->
 %%--------------------------------------------------------------------
 
 bob(Config) ->
-    _Config = [{escalus_users,
-               [{john,
-                 [{username, <<"john">>},
-                  {server, <<"example.com">>},
-                  {password, <<"johnldap">>}
-                 ]}
-               ]}
-             ],
     escalus:story(
-      Config, [{john, 1}],
+      Config, [{valid, 1}],
       fun(John) ->
               IQGet = escalus_stanza:iq(
                         <<"get">>, [#xmlelement{
@@ -82,3 +76,8 @@ bob(Config) ->
               %%escalus_new_assert:assert(is_sic_response(), Stanza)
               ct:pal("~p~n",[Stanza])
       end).
+
+%%--------------------------------------------------------------------
+%% Helper functions
+%%--------------------------------------------------------------------
+

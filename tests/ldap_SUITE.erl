@@ -1,5 +1,5 @@
 %%==============================================================================
-%% Copyright 2010 Erlang Solutions Ltd.
+%% Copyright 2012 Erlang Solutions Ltd.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -60,52 +60,35 @@ end_per_testcase(CaseName, Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-login(_Config) ->
-    John = [
-            {username, <<"john">>},
-            {server, <<"example.com">>},
-            {password, <<"johnldap">>},
-            {host, <<"localhost">>}],
+login(Config) ->
+    John = get_ldap_user(valid, Config),
     {ok, _, _} = escalus_connection:start(John).
 
-login_negative(_Config) ->
-    JohnBad = [
-               {username, <<"john">>},
-               {server, <<"example.com">>},
-               {password, <<"wrong_password">>},
-               {host, <<"localhost">>}],
+login_negative(Config) ->
+	JohnBad = get_ldap_user(fail_passwd, Config),
     {error, _} = escalus_connection:start(JohnBad).
 
-login_fail_filter(_Config) ->
+login_fail_filter(Config) ->
     %% Claire fails on uid: claire
-    ClaireBad = [
-                    {username, <<"claire">>},
-                    {server, <<"example.com">>},
-                    {password, <<"claireldap">>},
-                    {host, <<"localhost">>}],
+    ClaireBad = get_ldap_user(fail_filter, Config),
     {error, _} = escalus_connection:start(ClaireBad).
 
-login_fail_dn_filter(_Config) ->
+login_fail_dn_filter(Config) ->
     %% Ann fails on cn =/= displayName
-    AnnBad = [
-                    {username, <<"ann">>},
-                    {server, <<"example.com">>},
-                    {password, <<"annldap">>},
-                    {host, <<"localhost">>}],
+    AnnBad = get_ldap_user(fail_dn_filter, Config),
     {error, _} = escalus_connection:start(AnnBad).
 
-login_fail_local_filter(_Config) ->
+login_fail_local_filter(Config) ->
     %% Tom fails on description: inactive
-    TomBad = [
-                    {username, <<"tom">>},
-                    {server, <<"example.com">>},
-                    {password, <<"tomldap">>},
-                    {host, <<"localhost">>}],
+    TomBad = get_ldap_user(fail_local_filter1, Config),
     {error, _} = escalus_connection:start(TomBad),
     %% Mark fails on shadowFlag: 1
-    MarkBad = [
-                    {username, <<"mark">>},
-                    {server, <<"example.com">>},
-                    {password, <<"markldap">>},
-                    {host, <<"localhost">>}],
+    MarkBad = get_ldap_user(fail_local_filter2, Config),
     {error, _} = escalus_connection:start(MarkBad).
+
+%%--------------------------------------------------------------------
+%% Helper functions
+%%--------------------------------------------------------------------
+
+get_ldap_user(Key, Config) ->
+	element(2, lists:keyfind(Key, 1, escalus_config:get_config(escalus_ldap_users, Config, []))).

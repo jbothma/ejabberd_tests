@@ -8,9 +8,37 @@ objectClass: shadowAccount
 uid: john
 sn: Doe
 givenName: John
+initials: F.
 cn: John Doe
 displayName: John Doe
 userPassword: johnldap
+mail: john@mail.example.com
+description: active
+shadowFlag: 1
+employeeType: Patron Saint
+labeledURI: http://john.doe/
+# TODO: how to add c to a person?!
+#c: US
+l: Denver
+st: CO
+street: 1899 Wynkoop Street
+postalCode: 91210
+ou: People
+o: The world
+title: Executive Director
+telephoneNumber: +1-303-308-3282
+#jpegPhoto:                    #inetOrgPerson added separately.
+
+dn: uid=dave,ou=People,dc=example,dc=com
+objectClass: inetOrgPerson
+objectClass: shadowAccount
+uid: dave
+sn: Davidson
+givenName: Dave
+initials: D.
+cn: Dave Davidson
+displayName: Dave Davidson
+userPassword: daveldap
 description: active
 shadowFlag: 1
 

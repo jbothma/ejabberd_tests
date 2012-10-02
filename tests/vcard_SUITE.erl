@@ -17,6 +17,7 @@
 -module(vcard_SUITE).
 -compile(export_all).
 
+-include_lib("escalus/include/escalus_xmlns.hrl").
 -include_lib("escalus/include/escalus.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("exml/include/exml.hrl").
@@ -29,10 +30,11 @@ all() ->
     [{group, vcard}].
 
 groups() ->
-    [{vcard, [], [bob,
+    [{vcard, [], [
                   retrieve_own_card
-                  ,card_doesnt_exist
+                  ,user_doesnt_exist
                   ,update_card
+                  ,filtered_user_is_nonexistent
                   ,retrieve_others_card
                   ,service_discovery
                  ]}
@@ -42,6 +44,7 @@ suite() ->
     escalus:suite().
 
 %% Element CData
+-define(EL(Element, Name), exml_query:path(Element, [{element, Name}])).
 -define(EL_CD(Element, Name), exml_query:path(Element, [{element, Name}, cdata])).
 
 %%--------------------------------------------------------------------
@@ -67,7 +70,7 @@ end_per_testcase(CaseName, Config) ->
 %% VCard Test cases
 %%--------------------------------------------------------------------
 
-bob(Config) ->
+retrieve_own_card(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
@@ -77,46 +80,184 @@ bob(Config) ->
                                        attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
                                        children = []
                                       }]),
-              ct:pal("~p~n",[IQGet]),
               escalus:send(John, IQGet),
               Stanza = escalus:wait_for_stanza(John),
-              %%escalus_new_assert:assert(is_sic_response(), Stanza)
-              ct:pal("~p~n",[Stanza]),
 
               escalus_pred:is_iq(<<"result">>, Stanza),
 
-              VCard = exml_query:path(Stanza, [{element, <<"vCard">>}]),
+              VCard = ?EL(Stanza, <<"vCard">>),
               <<"john">> = ?EL_CD(VCard, <<"NICKNAME">>),
               <<"Doe, John">> = ?EL_CD(VCard, <<"FN">>),
-              <<"1966-08-06">> = ?EL_CD(VCard, <<"BDAY">>),
               <<"john@example.com">> = ?EL_CD(VCard, <<"JABBERID">>),
               <<"Executive Director">> = ?EL_CD(VCard, <<"TITLE">>),
               <<"Patron Saint">> = ?EL_CD(VCard, <<"ROLE">>),
-              <<"I am sam.">> = ?EL_CD(VCard, <<"DESC">>),
+              <<"active">> = ?EL_CD(VCard, <<"DESC">>),
               <<"http://john.doe/">> = ?EL_CD(VCard, <<"URL">>),
 
-
-              EMAIL = exml_query:path(VCard, [{element, <<"EMAIL">>}]),
+              EMAIL = ?EL(VCard, <<"EMAIL">>),
               <<"john@mail.example.com">> = ?EL_CD(EMAIL, <<"USERID">>),
 
-              N = exml_query:path(VCard, [{element, <<"N">>}]),
+              N = ?EL(VCard, <<"N">>),
               <<"Doe">> = ?EL_CD(N, <<"FAMILY">>),
               <<"John">> = ?EL_CD(N, <<"GIVEN">>),
-              <<"E.">> = ?EL_CD(N, <<"MIDDLE">>),
+              <<"F.">> = ?EL_CD(N, <<"MIDDLE">>),
 
-              ADR = exml_query:path(VCard, [{element, <<"ADR">>}]),
+              ADR = ?EL(VCard, <<"ADR">>),
               <<"1899 Wynkoop Street">> = ?EL_CD(ADR, <<"STREET">>),
               <<"Denver">> = ?EL_CD(ADR, <<"LOCALITY">>),
               <<"CO">> = ?EL_CD(ADR, <<"REGION">>),
               <<"91210">> = ?EL_CD(ADR, <<"PCODE">>),
-              <<"US of A">> = ?EL_CD(ADR, <<"CTRY">>),
+              %% TODO: Fix country: "additional info: attribute 'c' not allowed"
+              %%<<"US of A">> = ?EL_CD(ADR, <<"CTRY">>),
 
-              TEL = exml_query:path(VCard, [{element, <<"TEL">>}]),
-              <<"303-308-3282">> = ?EL_CD(TEL, <<"NUMBER">>)
+              TEL = ?EL(VCard, <<"TEL">>),
+              <<"+1 512 305 0280">> = ?EL_CD(TEL, <<"NUMBER">>),
+
+              ORG = ?EL(VCard, <<"ORG">>),
+              <<"The world">> = ?EL_CD(ORG, <<"ORGNAME">>),
+              <<"People">> = ?EL_CD(ORG, <<"ORGUNIT">>)
       end).
 
+user_doesnt_exist(Config) ->
+    escalus:story(
+      Config, [{valid, 1}],
+      fun(John) ->
+              IQGet = #xmlelement{
+                         name = <<"iq">>,
+                         attrs = [{<<"id">>, base16:encode(crypto:rand_bytes(16))},
+                                  {<<"to">>, <<"nobody@example.com">>},
+                                  {<<"type">>, <<"get">>}],
+                         children = [#xmlelement{
+                                        name = <<"vCard">>,
+                                        attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
+                                        children = []}]},
+              escalus:send(John, IQGet),
+
+              Stanza = escalus:wait_for_stanza(John),
+
+              %% If no vCard exists or the user does not exist, the server MUST
+              %% return a stanza error, which SHOULD be either
+              %% <service-unavailable/> or <item-not-found/>
+              escalus:assert(is_error, [<<"cancel">>,
+                                        <<"service-unavailable">>], Stanza)
+      end).
+
+filtered_user_is_nonexistent(Config) ->
+    escalus:story(
+      Config, [{valid, 1}],
+      fun(John) ->
+              IQGet = #xmlelement{
+                         name = <<"iq">>,
+                         attrs = [{<<"id">>, base16:encode(crypto:rand_bytes(16))},
+                                  {<<"to">>, <<"tom@example.com">>},
+                                  {<<"type">>, <<"get">>}],
+                         children = [#xmlelement{
+                                        name = <<"vCard">>,
+                                        attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
+                                        children = []}]},
+              escalus:send(John, IQGet),
+
+              Stanza = escalus:wait_for_stanza(John),
+              escalus:assert(is_error, [<<"cancel">>,
+                                        <<"service-unavailable">>], Stanza)
+      end).
+
+update_card(Config) ->
+    escalus:story(
+      Config, [{valid, 1}],
+      fun(John) ->
+              NewVCard = #xmlelement{ name = <<"FN">>,
+                                      attrs = [],
+                                      children = [{xmlcdata, <<"New name">>}]},
+              IQSet = #xmlelement{
+                         name = <<"iq">>,
+                         attrs = [{<<"id">>, base16:encode(crypto:rand_bytes(16))},
+                                  {<<"type">>, <<"set">>}],
+                         children = [#xmlelement{
+                                        name = <<"vCard">>,
+                                        attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
+                                        children = [NewVCard]}]},
+              escalus:send(John, IQSet),
+
+              Stanza = escalus:wait_for_stanza(John),
+
+              %% auth forbidden is also allowed
+              escalus:assert(is_error, [<<"cancel">>,
+                                        <<"not-allowed">>], Stanza)
+
+              %% Could check that the VCard didn't change, but since updates
+              %% aren't implemented for anyone for vcard_ldap, there's little point
+      end).
+
+retrieve_others_card(Config) ->
+    escalus:story(
+      Config, [{valid, 1}, {valid2, 1}],
+      fun(John, Dave) ->
+              IQGet = #xmlelement{
+                         name = <<"iq">>,
+                         attrs = [{<<"id">>, base16:encode(crypto:rand_bytes(16))},
+                                  {<<"to">>, <<"dave@example.com">>},
+                                  {<<"type">>, <<"get">>}],
+                         children = [#xmlelement{
+                                        name = <<"vCard">>,
+                                        attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
+                                        children = []
+                                       }]},
+              escalus:send(John, IQGet),
+
+              Stanza = escalus:wait_for_stanza(John),
+              escalus_pred:is_iq(<<"result">>, Stanza),
+
+              VCard = ?EL(Stanza, <<"vCard">>),
+              <<"dave">> = ?EL_CD(VCard, <<"NICKNAME">>),
+              <<"Davidson, Dave">> = ?EL_CD(VCard, <<"FN">>),
+              <<"dave@example.com">> = ?EL_CD(VCard, <<"JABBERID">>),
+
+              %% In accordance with XMPP Core [5], a compliant server MUST
+              %% respond on behalf of the requestor and not forward the IQ to
+              %% the requestee's connected resource.
+
+              Error = (catch escalus:wait_for_stanza(Dave)),
+              assert_timeout_when_waiting_for_stanza(Error)
+      end).
+
+service_discovery(Config) ->
+    escalus:story(
+      Config, [{valid, 1}],
+      fun(John) ->
+              IQGet = #xmlelement{
+                         name = <<"iq">>,
+                         attrs = [{<<"id">>, base16:encode(crypto:rand_bytes(16))},
+                                  {<<"to">>, <<"example.com">>},
+                                  {<<"from">>, escalus_client:full_jid(John)},
+                                  {<<"type">>, <<"get">>}],
+                         children = [#xmlelement{
+                                        name = <<"query">>,
+                                        attrs = [{<<"xmlns">>,?NS_DISCO_INFO}],
+                                        children = []
+                                       }]},
+              ct:pal("~p~n",[IQGet]),
+              escalus:send(John, IQGet),
+              Stanza = escalus:wait_for_stanza(John),
+              ct:pal("~p~n",[Stanza]),
+              escalus:assert(is_iq_result, Stanza),
+              has_feature(Stanza, <<"vcard-temp">>)
+    end).
 
 
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
+
+%% TODO: copied from ldap_SUTE - move to escalus_predicates
+assert_timeout_when_waiting_for_stanza(Error) ->
+    {'EXIT', {timeout_when_waiting_for_stanza,_}} = Error.
+
+%% TODO: copied from muc_SUITE - move to escalus_predicates
+has_feature(Stanza, Feature) ->
+    Features = exml_query:paths(Stanza, [{element, <<"query">>},
+                                         {element, <<"feature">>}]),
+    true = lists:any(fun(Item) ->
+                        exml_query:attr(Item, <<"var">>) == Feature
+                     end,
+                     Features).

@@ -31,12 +31,14 @@ all() ->
 
 groups() ->
     [{vcard, [], [
-                  retrieve_own_card
-                  ,user_doesnt_exist
-                  ,update_card
-                  ,filtered_user_is_nonexistent
-                  ,retrieve_others_card
-                  ,service_discovery
+                  %retrieve_own_card
+                  %,user_doesnt_exist
+                  %,update_card
+                  %,filtered_user_is_nonexistent
+                  %,retrieve_others_card
+                  service_discovery
+                  ,server_vcard
+                  %,directory_service_vcard
                  ]}
     ].
 
@@ -46,6 +48,8 @@ suite() ->
 %% Element CData
 -define(EL(Element, Name), exml_query:path(Element, [{element, Name}])).
 -define(EL_CD(Element, Name), exml_query:path(Element, [{element, Name}, cdata])).
+-define(PHOTO_B64_MD5, <<41,39,104,189,75,25,191,200,129,237,251,129,91,76,195,
+  162>>).
 
 %%--------------------------------------------------------------------
 %% Init & teardown
@@ -115,7 +119,10 @@ retrieve_own_card(Config) ->
 
               ORG = ?EL(VCard, <<"ORG">>),
               <<"The world">> = ?EL_CD(ORG, <<"ORGNAME">>),
-              <<"People">> = ?EL_CD(ORG, <<"ORGUNIT">>)
+              <<"People">> = ?EL_CD(ORG, <<"ORGUNIT">>),
+
+              PHOTO = ?EL(VCard, <<"PHOTO">>),
+              ?PHOTO_B64_MD5 = crypto:md5(?EL_CD(PHOTO, <<"BINVAL">>))
       end).
 
 user_doesnt_exist(Config) ->
@@ -221,6 +228,29 @@ retrieve_others_card(Config) ->
               assert_timeout_when_waiting_for_stanza(Error)
       end).
 
+server_vcard(Config) ->
+    escalus:story(
+      Config, [{valid, 1}],
+      fun(John) ->
+              IQGet = #xmlelement{
+                         name = <<"iq">>,
+                         attrs = [{<<"id">>, base16:encode(crypto:rand_bytes(16))},
+                                  {<<"to">>, <<"example.com">>},
+                                  {<<"type">>, <<"get">>}],
+                         children = [#xmlelement{
+                                        name = <<"vCard">>,
+                                        attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
+                                        children = []
+                                       }]},
+              escalus:send(John, IQGet),
+
+              Stanza = escalus:wait_for_stanza(John),
+              escalus_pred:is_iq(<<"result">>, Stanza),
+
+              VCard = ?EL(Stanza, <<"vCard">>),
+              <<"ejabberd">> = ?EL_CD(VCard, <<"FN">>)
+      end).
+
 service_discovery(Config) ->
     escalus:story(
       Config, [{valid, 1}],
@@ -229,14 +259,14 @@ service_discovery(Config) ->
                          name = <<"iq">>,
                          attrs = [{<<"id">>, base16:encode(crypto:rand_bytes(16))},
                                   {<<"to">>, <<"example.com">>},
-                                  {<<"from">>, escalus_client:full_jid(John)},
+                                  %{<<"from">>, escalus_client:full_jid(John)},
                                   {<<"type">>, <<"get">>}],
                          children = [#xmlelement{
                                         name = <<"query">>,
                                         attrs = [{<<"xmlns">>,?NS_DISCO_INFO}],
                                         children = []
                                        }]},
-              ct:pal("~p~n",[IQGet]),
+               ct:pal("~p~n",[IQGet]),
               escalus:send(John, IQGet),
               Stanza = escalus:wait_for_stanza(John),
               ct:pal("~p~n",[Stanza]),

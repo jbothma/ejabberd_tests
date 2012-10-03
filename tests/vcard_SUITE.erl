@@ -31,14 +31,14 @@ all() ->
 
 groups() ->
     [{vcard, [], [
-                  %retrieve_own_card
-                  %,user_doesnt_exist
-                  %,update_card
-                  %,filtered_user_is_nonexistent
-                  %,retrieve_others_card
-                  service_discovery
+                  retrieve_own_card
+                  ,user_doesnt_exist
+                  ,update_card
+                  ,filtered_user_is_nonexistent
+                  ,retrieve_others_card
+                  ,service_discovery
                   ,server_vcard
-                  %,directory_service_vcard
+                  ,directory_service_vcard
                  ]}
     ].
 
@@ -259,17 +259,15 @@ service_discovery(Config) ->
                          name = <<"iq">>,
                          attrs = [{<<"id">>, base16:encode(crypto:rand_bytes(16))},
                                   {<<"to">>, <<"example.com">>},
-                                  %{<<"from">>, escalus_client:full_jid(John)},
+                                  {<<"from">>, escalus_client:full_jid(John)},
                                   {<<"type">>, <<"get">>}],
                          children = [#xmlelement{
                                         name = <<"query">>,
                                         attrs = [{<<"xmlns">>,?NS_DISCO_INFO}],
                                         children = []
                                        }]},
-               ct:pal("~p~n",[IQGet]),
               escalus:send(John, IQGet),
               Stanza = escalus:wait_for_stanza(John),
-              ct:pal("~p~n",[Stanza]),
               escalus:assert(is_iq_result, Stanza),
               has_feature(Stanza, <<"vcard-temp">>)
     end).

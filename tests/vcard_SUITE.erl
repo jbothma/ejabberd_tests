@@ -251,6 +251,29 @@ server_vcard(Config) ->
               <<"ejabberd">> = ?EL_CD(VCard, <<"FN">>)
       end).
 
+directory_service_vcard(Config) ->
+    escalus:story(
+      Config, [{valid, 1}],
+      fun(John) ->
+              IQGet = #xmlelement{
+                         name = <<"iq">>,
+                         attrs = [{<<"id">>, base16:encode(crypto:rand_bytes(16))},
+                                  {<<"to">>, <<"vjud.example.com">>},
+                                  {<<"type">>, <<"get">>}],
+                         children = [#xmlelement{
+                                        name = <<"vCard">>,
+                                        attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
+                                        children = []
+                                       }]},
+              escalus:send(John, IQGet),
+
+              Stanza = escalus:wait_for_stanza(John),
+              escalus_pred:is_iq(<<"result">>, Stanza),
+
+              VCard = ?EL(Stanza, <<"vCard">>),
+              <<"ejabberd/mod_vcard">> = ?EL_CD(VCard, <<"FN">>)
+      end).
+
 service_discovery(Config) ->
     escalus:story(
       Config, [{valid, 1}],

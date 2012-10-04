@@ -302,52 +302,104 @@ search_open(Config) ->
                            children = XChildren } = XData,
               Reported = ?EL(XData, <<"reported">>),
               ReportedFieldTups = field_tuples(Reported#xmlelement.children),
+
+              %% Basically test that the right values exist
+              %% and map to the right column headings
               ItemTups = item_tuples(ReportedFieldTups, XChildren),
-              ct:pal("~p~n",[ItemTups])%,
-%              <<"John">> = ?EL_CD(JohnItem, <<"first">>),
-%              <<"Doe">> = ?EL_CD(JohnItem, <<"last">>),
-%              <<"john@mail.example.com">> = ?EL_CD(JohnItem, <<"email">>),
-%              <<"John">> = ?EL_CD(JohnItem, <<"first">>)
+              {_,JohnsFields} =
+                  lists:keyfind(<<"john@example.com">>, 1, ItemTups),
+              %% TODO: we can probably check many fields with a lists:map
+              true = lists:member({<<"text-single">>,
+                                      <<"EMAIL">>, <<"Email">>,
+                                      <<"john@mail.example.com">>},
+                                     JohnsFields),
+              {_, DavesFields} =
+                  lists:keyfind(<<"dave@example.com">>, 1, ItemTups),
+              true = lists:member({<<"text-single">>,
+                                      <<"FN">>, <<"Full Name">>,
+                                      <<"Davidson, Dave">>},
+                                     DavesFields)
       end).
 
 search_empty(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
-              Fields = [#xmlelement{ name = <<"last">>,
-                                     children = {xmlcdata, <<"nobody">>}
-                                   }],
+              Fields = [#xmlelement{
+                           name = <<"field">>,
+                           attrs = [{<<"var">>,<<"sn">>}],
+                           children = [#xmlelement{
+                                          name= <<"value">>,
+                                          children =
+                                              [{xmlcdata,<<"nobody">>}]}]}],
+              Form = #xmlelement{ name = <<"x">>,
+                                     attrs = [{<<"xmlns">>,?NS_DATA_FORMS},
+                                              {<<"type">>, <<"submit">>}],
+                                     children = Fields
+                                   },
               Query = #xmlelement{ name = <<"query">>,
                                    attrs = [{<<"xmlns">>,?NS_SEARCH}],
-                                   children = Fields
+                                   children = [Form]
                                  },
-              IQGet = escalus_stanza:iq(
-                        <<"vjud.example.com">>, <<"get">>, [Query]),
-              escalus:send(John, IQGet),
+              IQSearch = escalus_stanza:iq(
+                        <<"vjud.example.com">>, <<"set">>, [Query]),
+              escalus:send(John, IQSearch),
               Stanza = escalus:wait_for_stanza(John),
               escalus:assert(is_iq_result, Stanza),
               Result = ?EL(Stanza, <<"query">>),
-              undefined = Result#xmlelement.children
+              XData = ?EL(Result, <<"x">>),
+              #xmlelement{ attrs = _XAttrs,
+                           children = XChildren } = XData,
+              Reported = ?EL(XData, <<"reported">>),
+              ReportedFieldTups = field_tuples(Reported#xmlelement.children),
+
+              [] = item_tuples(ReportedFieldTups, XChildren)
       end).
 
 search_some(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
-              Fields = [#xmlelement{ name = <<"first">>,
-                                     children = {xmlcdata, <<"Dave">>} }],
+              Fields = [#xmlelement{
+                           name = <<"field">>,
+                           attrs = [{<<"var">>,<<"sn">>}],
+                           children = [#xmlelement{
+                                          name = <<"value">>,
+                                          children =
+                                              [{xmlcdata, <<"Davidson">>}]}]}],
+              Form = #xmlelement{ name = <<"x">>,
+                                  attrs = [{<<"xmlns">>,?NS_DATA_FORMS},
+                                           {<<"type">>, <<"submit">>}],
+                                  children = Fields
+                                },
               Query = #xmlelement{ name = <<"query">>,
                                    attrs = [{<<"xmlns">>,?NS_SEARCH}],
-                                   children = Fields
+                                   children = [Form]
                                  },
               IQGet = escalus_stanza:iq(
-                        <<"vjud.example.com">>, <<"get">>, [Query]),
+                        <<"vjud.example.com">>, <<"set">>, [Query]),
               escalus:send(John, IQGet),
               Stanza = escalus:wait_for_stanza(John),
               escalus:assert(is_iq_result, Stanza),
               Result = ?EL(Stanza, <<"query">>),
-              [DaveItem] = Result#xmlelement.children,
-              <<"Davidson">> = ?EL_CD(DaveItem, <<"last">>)
+              XData = ?EL(Result, <<"x">>),
+              #xmlelement{ attrs = _XAttrs,
+                           children = XChildren } = XData,
+              Reported = ?EL(XData, <<"reported">>),
+              ReportedFieldTups = field_tuples(Reported#xmlelement.children),
+
+              %% Basically test that the right values exist
+              %% and map to the right column headings
+              ItemTups = item_tuples(ReportedFieldTups, XChildren),
+              false = lists:keyfind(<<"john@example.com">>, 1, ItemTups),
+              %% TODO: we can probably check many fields with a lists:map
+              %% and data from test.config.
+              {_, DavesFields} = lists:keyfind(
+                                   <<"dave@example.com">>, 1, ItemTups),
+              true = lists:member({<<"text-single">>,
+                                      <<"FN">>, <<"Full Name">>,
+                                      <<"Davidson, Dave">>},
+                                     DavesFields)
       end).
 
 %%--------------------------------------------------------------------

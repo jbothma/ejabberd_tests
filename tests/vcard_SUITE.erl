@@ -27,7 +27,9 @@
 %%--------------------------------------------------------------------
 
 all() ->
-    [{group, vcard}].
+    [{group, vcard}
+     ,{group, directory}
+    ].
 
 groups() ->
     [{vcard, [], [
@@ -39,7 +41,13 @@ groups() ->
                   ,service_discovery
                   ,server_vcard
                   ,directory_service_vcard
-                 ]}
+                 ]},
+     {directory, [], [
+                      req_search_fields
+                      ,search_open
+                      ,search_empty
+                      ,search_some
+                     ]}
     ].
 
 suite() ->
@@ -71,7 +79,7 @@ end_per_testcase(CaseName, Config) ->
 
 
 %%--------------------------------------------------------------------
-%% VCard Test cases
+%% XEP-0054: vcard-temp Test cases
 %%--------------------------------------------------------------------
 
 retrieve_own_card(Config) ->
@@ -238,6 +246,109 @@ service_discovery(Config) ->
               has_feature(Stanza, <<"vcard-temp">>)
     end).
 
+%%--------------------------------------------------------------------
+%% XEP-0054 jabber:iq:search User Directory service Test cases
+%%--------------------------------------------------------------------
+
+req_search_fields(Config) ->
+escalus:story(
+      Config, [{valid, 1}],
+      fun(John) ->
+              Query = #xmlelement{ name = <<"query">>,
+                                   attrs = [{<<"xmlns">>,?NS_SEARCH}],
+                                   children = []
+                                 },
+              IQGet = escalus_stanza:iq(
+                        <<"vjud.example.com">>, <<"get">>, [Query]),
+              escalus:send(John, IQGet),
+              Stanza = escalus:wait_for_stanza(John),
+              escalus:assert(is_iq_result, Stanza),
+              Result = ?EL(Stanza, <<"query">>),
+              XData = ?EL(Result, <<"x">>),
+              #xmlelement{ attrs = _XAttrs,
+                           children = XChildren } = XData,
+              FieldTups = field_tuples(XChildren),
+              true = lists:member({<<"text-single">>, <<"%u">>, <<"User">>},
+                                  FieldTups),
+              true = lists:member({<<"text-single">>,
+                                   <<"displayName">>,
+                                   <<"Full Name">>},
+                                  FieldTups)
+      end).
+
+
+search_open(Config) ->
+    escalus:story(
+      Config, [{valid, 1}],
+      fun(John) ->
+              Fields = [#xmlelement{ name = <<"field">>}],
+              Form = #xmlelement{ name = <<"x">>,
+                                     attrs = [{<<"xmlns">>,?NS_DATA_FORMS},
+                                              {<<"type">>, <<"submit">>}],
+                                     children = Fields
+                                   },
+              Query = #xmlelement{ name = <<"query">>,
+                                   attrs = [{<<"xmlns">>,?NS_SEARCH}],
+                                   children = [Form]
+                                 },
+              IQGet = escalus_stanza:iq(
+                        <<"vjud.example.com">>, <<"set">>, [Query]),
+              escalus:send(John, IQGet),
+              Stanza = escalus:wait_for_stanza(John),
+              escalus:assert(is_iq_result, Stanza),
+              Result = ?EL(Stanza, <<"query">>),
+              XData = ?EL(Result, <<"x">>),
+              #xmlelement{ attrs = _XAttrs,
+                           children = XChildren } = XData,
+              Reported = ?EL(XData, <<"reported">>),
+              ReportedFieldTups = field_tuples(Reported#xmlelement.children),
+              ItemTups = item_tuples(ReportedFieldTups, XChildren),
+              ct:pal("~p~n",[ItemTups])%,
+%              <<"John">> = ?EL_CD(JohnItem, <<"first">>),
+%              <<"Doe">> = ?EL_CD(JohnItem, <<"last">>),
+%              <<"john@mail.example.com">> = ?EL_CD(JohnItem, <<"email">>),
+%              <<"John">> = ?EL_CD(JohnItem, <<"first">>)
+      end).
+
+search_empty(Config) ->
+    escalus:story(
+      Config, [{valid, 1}],
+      fun(John) ->
+              Fields = [#xmlelement{ name = <<"last">>,
+                                     children = {xmlcdata, <<"nobody">>}
+                                   }],
+              Query = #xmlelement{ name = <<"query">>,
+                                   attrs = [{<<"xmlns">>,?NS_SEARCH}],
+                                   children = Fields
+                                 },
+              IQGet = escalus_stanza:iq(
+                        <<"vjud.example.com">>, <<"get">>, [Query]),
+              escalus:send(John, IQGet),
+              Stanza = escalus:wait_for_stanza(John),
+              escalus:assert(is_iq_result, Stanza),
+              Result = ?EL(Stanza, <<"query">>),
+              undefined = Result#xmlelement.children
+      end).
+
+search_some(Config) ->
+    escalus:story(
+      Config, [{valid, 1}],
+      fun(John) ->
+              Fields = [#xmlelement{ name = <<"first">>,
+                                     children = {xmlcdata, <<"Dave">>} }],
+              Query = #xmlelement{ name = <<"query">>,
+                                   attrs = [{<<"xmlns">>,?NS_SEARCH}],
+                                   children = Fields
+                                 },
+              IQGet = escalus_stanza:iq(
+                        <<"vjud.example.com">>, <<"get">>, [Query]),
+              escalus:send(John, IQGet),
+              Stanza = escalus:wait_for_stanza(John),
+              escalus:assert(is_iq_result, Stanza),
+              Result = ?EL(Stanza, <<"query">>),
+              [DaveItem] = Result#xmlelement.children,
+              <<"Davidson">> = ?EL_CD(DaveItem, <<"last">>)
+      end).
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -262,3 +373,58 @@ vcard(Body) ->
        attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
        children = Body
       }.
+
+%%
+%% -> [{Type, Var, Label}]
+%%
+field_tuples([]) ->
+    [];
+field_tuples([#xmlelement{name = <<"field">>,
+                          attrs=Attrs,
+                          children=_Children} = El| Rest]) ->
+    {<<"type">>,Type} = lists:keyfind(<<"type">>, 1, Attrs),
+    {<<"var">>,Var} = lists:keyfind(<<"var">>, 1, Attrs),
+    {<<"label">>,Label} = lists:keyfind(<<"label">>, 1, Attrs),
+    case ?EL_CD(El, <<"value">>) of
+        undefined ->
+            [{Type, Var, Label}|field_tuples(Rest)];
+        ValCData ->
+            [{Type, Var, Label, ValCData}|field_tuples(Rest)]
+    end;
+field_tuples([_SomeOtherEl|Rest]) ->
+    field_tuples(Rest).
+
+
+%%
+%%  -> [{Type, Var, Label, ValueCData}]
+%%
+%% This is naiive and expensive LOL!
+item_field_tuples(_, []) ->
+    [];
+item_field_tuples(ReportedFieldTups,
+                  [#xmlelement{name = <<"field">>,
+                               attrs=Attrs,
+                               children=_Children} = El| Rest]) ->
+    {<<"var">>,Var} = lists:keyfind(<<"var">>, 1, Attrs),
+    {Type, Var, Label} = lists:keyfind(Var, 2, ReportedFieldTups),
+    [{Type, Var, Label, ?EL_CD(El, <<"value">>)}
+     | item_field_tuples(ReportedFieldTups, Rest)];
+
+item_field_tuples(ReportedFieldTups, [_SomeOtherEl|Rest]) ->
+    item_field_tuples(ReportedFieldTups, Rest).
+
+
+%%
+%% -> [{JID, [ItemFieldTups]}]
+%%
+%% Finds the JID and maps fields to their labels and types
+%%
+item_tuples(_, []) ->
+    [];
+item_tuples(ReportedFieldTups, [#xmlelement{name = <<"item">>,
+                                            children = Children} | Rest]) ->
+    ItemFieldTups = item_field_tuples(ReportedFieldTups, Children),
+    {_,_,_,JID} = lists:keyfind(<<"jid">>, 2, ItemFieldTups),
+    [{JID, ItemFieldTups}|item_tuples(ReportedFieldTups, Rest)];
+item_tuples(ReportedFieldTypes, [_SomeOtherChild | Rest]) ->
+    item_tuples(ReportedFieldTypes, Rest).

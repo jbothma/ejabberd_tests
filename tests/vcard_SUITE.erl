@@ -78,12 +78,7 @@ retrieve_own_card(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
-              IQGet = escalus_stanza:iq(
-                        <<"get">>, [#xmlelement{
-                                       name = <<"vCard">>,
-                                       attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
-                                       children = []
-                                      }]),
+              IQGet = escalus_stanza:iq(<<"get">>, [vcard([])]),
               escalus:send(John, IQGet),
               Stanza = escalus:wait_for_stanza(John),
 
@@ -112,7 +107,7 @@ retrieve_own_card(Config) ->
               <<"CO">> = ?EL_CD(ADR, <<"REGION">>),
               <<"91210">> = ?EL_CD(ADR, <<"PCODE">>),
               %% TODO: Fix country: "additional info: attribute 'c' not allowed"
-              %%<<"US of A">> = ?EL_CD(ADR, <<"CTRY">>),
+              %%<<"US">> = ?EL_CD(ADR, <<"CTRY">>),
 
               TEL = ?EL(VCard, <<"TEL">>),
               <<"+1 512 305 0280">> = ?EL_CD(TEL, <<"NUMBER">>),
@@ -129,15 +124,8 @@ user_doesnt_exist(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
-              IQGet = #xmlelement{
-                         name = <<"iq">>,
-                         attrs = [{<<"id">>, base16:encode(crypto:rand_bytes(16))},
-                                  {<<"to">>, <<"nobody@example.com">>},
-                                  {<<"type">>, <<"get">>}],
-                         children = [#xmlelement{
-                                        name = <<"vCard">>,
-                                        attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
-                                        children = []}]},
+              IQGet = escalus_stanza:iq(
+                        <<"nobody@example.com">>, <<"get">>, vcard([])),
               escalus:send(John, IQGet),
 
               Stanza = escalus:wait_for_stanza(John),
@@ -153,15 +141,8 @@ filtered_user_is_nonexistent(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
-              IQGet = #xmlelement{
-                         name = <<"iq">>,
-                         attrs = [{<<"id">>, base16:encode(crypto:rand_bytes(16))},
-                                  {<<"to">>, <<"tom@example.com">>},
-                                  {<<"type">>, <<"get">>}],
-                         children = [#xmlelement{
-                                        name = <<"vCard">>,
-                                        attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
-                                        children = []}]},
+              IQGet = escalus_stanza:iq(
+                        <<"tom@example.com">>,<<"get">>,[vcard([])]),
               escalus:send(John, IQGet),
 
               Stanza = escalus:wait_for_stanza(John),
@@ -173,17 +154,11 @@ update_card(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
-              NewVCard = #xmlelement{ name = <<"FN">>,
-                                      attrs = [],
-                                      children = [{xmlcdata, <<"New name">>}]},
-              IQSet = #xmlelement{
-                         name = <<"iq">>,
-                         attrs = [{<<"id">>, base16:encode(crypto:rand_bytes(16))},
-                                  {<<"type">>, <<"set">>}],
-                         children = [#xmlelement{
-                                        name = <<"vCard">>,
-                                        attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
-                                        children = [NewVCard]}]},
+              NewVCardEls = [#xmlelement{
+                               name = <<"FN">>,
+                               attrs = [],
+                               children = [{xmlcdata, <<"New name">>}]}],
+              IQSet = escalus_stanza:iq(<<"set">>, [vcard(NewVCardEls)]),
               escalus:send(John, IQSet),
 
               Stanza = escalus:wait_for_stanza(John),
@@ -192,7 +167,7 @@ update_card(Config) ->
               escalus:assert(is_error, [<<"cancel">>,
                                         <<"not-allowed">>], Stanza)
 
-              %% Could check that the VCard didn't change, but since updates
+              %% Could check that the vCard didn't change, but since updates
               %% aren't implemented for anyone for vcard_ldap, there's little point
       end).
 
@@ -200,16 +175,7 @@ retrieve_others_card(Config) ->
     escalus:story(
       Config, [{valid, 1}, {valid2, 1}],
       fun(John, Dave) ->
-              IQGet = #xmlelement{
-                         name = <<"iq">>,
-                         attrs = [{<<"id">>, base16:encode(crypto:rand_bytes(16))},
-                                  {<<"to">>, <<"dave@example.com">>},
-                                  {<<"type">>, <<"get">>}],
-                         children = [#xmlelement{
-                                        name = <<"vCard">>,
-                                        attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
-                                        children = []
-                                       }]},
+              IQGet = escalus_stanza:iq(<<"dave@example.com">>, <<"get">>, [vcard([])]),
               escalus:send(John, IQGet),
 
               Stanza = escalus:wait_for_stanza(John),
@@ -232,16 +198,7 @@ server_vcard(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
-              IQGet = #xmlelement{
-                         name = <<"iq">>,
-                         attrs = [{<<"id">>, base16:encode(crypto:rand_bytes(16))},
-                                  {<<"to">>, <<"example.com">>},
-                                  {<<"type">>, <<"get">>}],
-                         children = [#xmlelement{
-                                        name = <<"vCard">>,
-                                        attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
-                                        children = []
-                                       }]},
+              IQGet = escalus_stanza:iq(<<"example.com">>, <<"get">>, [vcard([])]),
               escalus:send(John, IQGet),
 
               Stanza = escalus:wait_for_stanza(John),
@@ -255,16 +212,8 @@ directory_service_vcard(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
-              IQGet = #xmlelement{
-                         name = <<"iq">>,
-                         attrs = [{<<"id">>, base16:encode(crypto:rand_bytes(16))},
-                                  {<<"to">>, <<"vjud.example.com">>},
-                                  {<<"type">>, <<"get">>}],
-                         children = [#xmlelement{
-                                        name = <<"vCard">>,
-                                        attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
-                                        children = []
-                                       }]},
+              IQGet = escalus_stanza:iq(
+                        <<"vjud.example.com">>, <<"get">>, [vcard([])]),
               escalus:send(John, IQGet),
 
               Stanza = escalus:wait_for_stanza(John),
@@ -278,17 +227,11 @@ service_discovery(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
-              IQGet = #xmlelement{
-                         name = <<"iq">>,
-                         attrs = [{<<"id">>, base16:encode(crypto:rand_bytes(16))},
-                                  {<<"to">>, <<"example.com">>},
-                                  {<<"from">>, escalus_client:full_jid(John)},
-                                  {<<"type">>, <<"get">>}],
-                         children = [#xmlelement{
-                                        name = <<"query">>,
-                                        attrs = [{<<"xmlns">>,?NS_DISCO_INFO}],
-                                        children = []
-                                       }]},
+              Query = #xmlelement{ name = <<"query">>,
+                                   attrs = [{<<"xmlns">>,?NS_DISCO_INFO}],
+                                   children = []
+                                 },
+              IQGet = escalus_stanza:iq(<<"example.com">>, <<"get">>, [Query]),
               escalus:send(John, IQGet),
               Stanza = escalus:wait_for_stanza(John),
               escalus:assert(is_iq_result, Stanza),
@@ -312,3 +255,10 @@ has_feature(Stanza, Feature) ->
                         exml_query:attr(Item, <<"var">>) == Feature
                      end,
                      Features).
+
+vcard(Body) ->
+    #xmlelement{
+       name = <<"vCard">>,
+       attrs = [{<<"xmlns">>,<<"vcard-temp">>}],
+       children = Body
+      }.

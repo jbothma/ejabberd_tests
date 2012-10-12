@@ -40,7 +40,9 @@
 
 all() ->
     [{group, vcard}
-     ,{group, directory}
+     ,{group, search}
+     ,{group, no_search}
+     ,{group, limited_search}
     ].
 
 groups() ->
@@ -54,12 +56,21 @@ groups() ->
                   ,server_vcard
                   ,directory_service_vcard
                  ]},
-     {directory, [], [
-                      req_search_fields
-                      ,search_open
-                      ,search_empty
-                      ,search_some
-                     ]}
+     {search, [], [
+                   req_search_fields
+                   ,search_open
+                   ,search_empty
+                   ,search_some
+                  ]},
+     {no_search, [], [
+                      search_not_allowed,
+                      not_in_service_disco
+                      ]},
+     {limited_search, [], [
+                           service_disco,
+                           search_open_limited,
+                           search_some
+                           ]}
     ].
 
 suite() ->
@@ -257,7 +268,10 @@ service_discovery(Config) ->
 
 %%--------------------------------------------------------------------
 %% XEP-0054 jabber:iq:search User Directory service Test cases
+%%
 %%--------------------------------------------------------------------
+
+%% example.com
 
 req_search_fields(Config) ->
 escalus:story(
@@ -411,6 +425,75 @@ search_some(Config) ->
                                      DavesFields)
       end).
 
+%%------------------------------------
+%% @limited.search.ldap
+
+search_open_limited(Config) ->
+    escalus:story(
+      Config, [{ltd_search, 1}],
+      fun(LtdUsr) ->
+              Fields = [#xmlelement{ name = <<"field">>}],
+              Form = #xmlelement{ name = <<"x">>,
+                                     attrs = [{<<"xmlns">>,?NS_DATA_FORMS},
+                                              {<<"type">>, <<"submit">>}],
+                                     children = Fields
+                                   },
+              Query = #xmlelement{ name = <<"query">>,
+                                   attrs = [{<<"xmlns">>,?NS_SEARCH}],
+                                   children = [Form]
+                                 },
+              IQGet = escalus_stanza:iq(
+                        <<"directory.limited.search.ldap">>, <<"set">>, [Query]),
+              escalus:send(LtdUsr, IQGet),
+              Stanza = escalus:wait_for_stanza(LtdUsr),
+              escalus:assert(is_iq_result, Stanza),
+              Result = ?EL(Stanza, <<"query">>),
+              XData = ?EL(Result, <<"x">>),
+              #xmlelement{ attrs = _XAttrs,
+                           children = XChildren } = XData,
+              Reported = ?EL(XData, <<"reported">>),
+              ReportedFieldTups = field_tuples(Reported#xmlelement.children),
+              ItemTups = item_tuples(ReportedFieldTups, XChildren),
+
+              %% exactly one result returned and its JID domain is correct
+              [{SomeJID, _JIDsFields}] = ItemTups,
+              {_Start, _Length} = binary:match(SomeJID, <<"@limited.search.ldap">>)
+      end).
+
+%%------------------------------------
+%% @no.search.ldap
+
+search_not_allowed(Config) ->
+    escalus:story(
+      Config, [{no_search, 1}],
+      fun(NoSearchUsr) ->
+              Fields = [#xmlelement{ name = <<"field">>}],
+              Form = #xmlelement{ name = <<"x">>,
+                                     attrs = [{<<"xmlns">>,?NS_DATA_FORMS},
+                                              {<<"type">>, <<"submit">>}],
+                                     children = Fields
+                                   },
+              Query = #xmlelement{ name = <<"query">>,
+                                   attrs = [{<<"xmlns">>,?NS_SEARCH}],
+                                   children = [Form]
+                                 },
+              IQGet = escalus_stanza:iq(
+                        <<"vjud.no.search.ldap">>, <<"set">>, [Query]),
+              escalus:send(NoSearchUsr, IQGet),
+              Stanza = escalus:wait_for_stanza(NoSearchUsr),
+              escalus:assert(is_iq_result, Stanza),
+              Result = ?EL(Stanza, <<"query">>),
+              XData = ?EL(Result, <<"x">>),
+              #xmlelement{ attrs = _XAttrs,
+                           children = XChildren } = XData,
+              Reported = ?EL(XData, <<"reported">>),
+              ReportedFieldTups = field_tuples(Reported#xmlelement.children),
+              ItemTups = item_tuples(ReportedFieldTups, XChildren),
+
+              %% exactly one result returned and its JID domain is correct
+              [{SomeJID, _JIDsFields}] = ItemTups,
+              {_Start, _Length} = binary:match(SomeJID, <<"@limited.search.ldap">>)
+      end).
 
 %%--------------------------------------------------------------------
 %% Helper functions

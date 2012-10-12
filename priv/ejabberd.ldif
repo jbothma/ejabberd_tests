@@ -41,6 +41,8 @@ displayName: Dave Davidson
 userPassword: daveldap
 description: active
 shadowFlag: 1
+street: В Советской России, дорога разветвляется вы
+l: Москва
 
 dn: uid=tom,ou=People,dc=example,dc=com
 objectClass: inetOrgPerson

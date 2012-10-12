@@ -26,7 +26,8 @@
 %%--------------------------------------------------------------------
 
 all() ->
-    [{group, auth}].
+    [{group, auth}
+     ,{group, eunit}].
 
 groups() ->
     [{auth, [], [
@@ -35,7 +36,10 @@ groups() ->
                  login_fail_filter,
                  login_fail_dn_filter,
                  login_fail_local_filter
-                ]}
+                ]},
+     {eunit, [], [
+                  eldap_utils
+                  ]}
     ].
 
 
@@ -88,9 +92,26 @@ login_fail_local_filter(Config) ->
     MarkBad = get_ldap_user(fail_local_filter2, Config),
     {error, _} = escalus_connection:start(MarkBad).
 
+
+%%--------------------------------------------------------------------
+%% drive module unit tests from CT
+%%
+%% This is a bit hacky but saves making ejd releases including eunit.
+%% It works as long as the test only depends on the module in question.
+%%--------------------------------------------------------------------
+
+eldap_utils(_Config) ->
+    Mod = eldap_utils,
+    {Mod, Bin, FName} = escalus_ejabberd:rpc(code, get_object_code, [Mod]),
+    {module, Mod} = code:load_binary(Mod, FName, Bin),
+    ok = Mod:test().
+
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
 
 get_ldap_user(Key, Config) ->
-	element(2, lists:keyfind(Key, 1, escalus_config:get_config(escalus_ldap_users, Config, []))).
+	element(2, lists:keyfind(
+                     Key, 1, escalus_config:get_config(
+                               escalus_ldap_users, Config, []))).

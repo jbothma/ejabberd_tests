@@ -22,6 +22,18 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("exml/include/exml.hrl").
 
+%% Element CData
+-define(EL(Element, Name), exml_query:path(Element, [{element, Name}])).
+-define(EL_CD(Element, Name), exml_query:path(Element, [{element, Name}, cdata])).
+-define(PHOTO_B64_MD5, <<41,39,104,189,75,25,191,200,129,237,251,129,91,76,195,
+  162>>).
+
+%% This is the UTF-8 of Москва
+-define(MOSCOW_RU_BIN, <<208,156,208,190,209,129,208,186,208,178,208,176>>).
+
+%% This is the md5 of the UTF-8 of В Советской России, дорога разветвляется вы
+-define(STREET_RU_MD5, <<45,220,43,98,22,144,242,20,45,41,160,214,142,89,215,30>>).
+
 %%--------------------------------------------------------------------
 %% Suite configuration
 %%--------------------------------------------------------------------
@@ -52,12 +64,6 @@ groups() ->
 
 suite() ->
     escalus:suite().
-
-%% Element CData
--define(EL(Element, Name), exml_query:path(Element, [{element, Name}])).
--define(EL_CD(Element, Name), exml_query:path(Element, [{element, Name}, cdata])).
--define(PHOTO_B64_MD5, <<41,39,104,189,75,25,191,200,129,237,251,129,91,76,195,
-  162>>).
 
 %%--------------------------------------------------------------------
 %% Init & teardown
@@ -193,6 +199,9 @@ retrieve_others_card(Config) ->
               <<"dave">> = ?EL_CD(VCard, <<"NICKNAME">>),
               <<"Davidson, Dave">> = ?EL_CD(VCard, <<"FN">>),
               <<"dave@example.com">> = ?EL_CD(VCard, <<"JABBERID">>),
+
+              ADR = ?EL(VCard, <<"ADR">>),
+              ?STREET_RU_MD5 = crypto:md5(?EL_CD(ADR, <<"STREET">>)),
 
               %% In accordance with XMPP Core [5], a compliant server MUST
               %% respond on behalf of the requestor and not forward the IQ to
@@ -362,11 +371,11 @@ search_some(Config) ->
       fun(John) ->
               Fields = [#xmlelement{
                            name = <<"field">>,
-                           attrs = [{<<"var">>,<<"sn">>}],
+                           attrs = [{<<"var">>,<<"l">>}],
                            children = [#xmlelement{
                                           name = <<"value">>,
                                           children =
-                                              [{xmlcdata, <<"Davidson">>}]}]}],
+                                              [{xmlcdata, ?MOSCOW_RU_BIN}]}]}],
               Form = #xmlelement{ name = <<"x">>,
                                   attrs = [{<<"xmlns">>,?NS_DATA_FORMS},
                                            {<<"type">>, <<"submit">>}],
@@ -401,6 +410,7 @@ search_some(Config) ->
                                       <<"Davidson, Dave">>},
                                      DavesFields)
       end).
+
 
 %%--------------------------------------------------------------------
 %% Helper functions

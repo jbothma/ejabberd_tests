@@ -27,7 +27,7 @@ ou: People
 o: The world
 title: Executive Director
 telephoneNumber: +1-303-308-3282
-#jpegPhoto:                    #inetOrgPerson added separately.
+jpegPhoto:< file:///home/user/ldap_vcard.jpeg
 
 dn: uid=dave,ou=People,dc=example,dc=com
 objectClass: inetOrgPerson

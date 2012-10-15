@@ -52,7 +52,7 @@ groups() ->
                   ,update_card
                   ,filtered_user_is_nonexistent
                   ,retrieve_others_card
-                  ,service_discovery
+                  ,vcard_service_discovery
                   ,server_vcard
                   ,directory_service_vcard
                  ]},
@@ -64,10 +64,10 @@ groups() ->
                   ]},
      {no_search, [], [
                       search_not_allowed,
-                      not_in_service_disco
+                      search_not_in_service_discovery
                       ]},
      {limited_search, [], [
-                           service_disco,
+                           search_in_service_discovery,
                            search_open_limited,
                            search_some
                            ]}
@@ -251,7 +251,7 @@ directory_service_vcard(Config) ->
               <<"ejabberd/mod_vcard">> = ?EL_CD(VCard, <<"FN">>)
       end).
 
-service_discovery(Config) ->
+vcard_service_discovery(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
@@ -263,11 +263,11 @@ service_discovery(Config) ->
               escalus:send(John, IQGet),
               Stanza = escalus:wait_for_stanza(John),
               escalus:assert(is_iq_result, Stanza),
-              has_feature(Stanza, <<"vcard-temp">>)
+              true = has_feature(Stanza, <<"vcard-temp">>)
     end).
 
 %%--------------------------------------------------------------------
-%% XEP-0054 jabber:iq:search User Directory service Test cases
+%% XEP-0055 jabber:iq:search User Directory service Test cases
 %%
 %%--------------------------------------------------------------------
 
@@ -460,6 +460,42 @@ search_open_limited(Config) ->
               {_Start, _Length} = binary:match(SomeJID, <<"@limited.search.ldap">>)
       end).
 
+%% disco#items to limited.search.ldap says directory.limited.search.ldap exists
+%% disco#info to directory.limited.search.ldap says it has feature jabber:iq:search
+%% and an <identity category='directory' type='user'/>
+%%   http://xmpp.org/extensions/xep-0030.html#registrar-reg-identity
+search_in_service_discovery(Config) ->
+    escalus:story(
+      Config, [{ltd_search, 1}],
+      fun(LtdUsr) ->
+              %% Item
+              ItemsQuery = #xmlelement{ name = <<"query">>,
+                                        attrs = [{<<"xmlns">>,?NS_DISCO_ITEMS}],
+                                        children = []
+                                      },
+              ItemsIQGet = escalus_stanza:iq(
+                        <<"limited.search.ldap">>, <<"get">>, [ItemsQuery]),
+              escalus:send(LtdUsr, ItemsIQGet),
+              ItemsStanza = escalus:wait_for_stanza(LtdUsr),
+              escalus:assert(is_iq_result, ItemsStanza),
+              true = has_item(ItemsStanza, <<"directory.limited.search.ldap">>),
+
+              %% Feature
+              InfoQuery = #xmlelement{ name = <<"query">>,
+                                       attrs = [{<<"xmlns">>,?NS_DISCO_INFO}],
+                                       children = []
+                                     },
+              InfoIQGet = escalus_stanza:iq(
+                        <<"directory.limited.search.ldap">>, <<"get">>, [InfoQuery]),
+              escalus:send(LtdUsr, InfoIQGet),
+              InfoStanza = escalus:wait_for_stanza(LtdUsr),
+              escalus:assert(is_iq_result, InfoStanza),
+              true = has_feature(InfoStanza, <<"jabber:iq:search">>),
+
+              %% Identity
+              true = has_identity(InfoStanza, <<"directory">>, <<"user">>)
+      end).
+
 %%------------------------------------
 %% @no.search.ldap
 
@@ -481,18 +517,26 @@ search_not_allowed(Config) ->
                         <<"vjud.no.search.ldap">>, <<"set">>, [Query]),
               escalus:send(NoSearchUsr, IQGet),
               Stanza = escalus:wait_for_stanza(NoSearchUsr),
-              escalus:assert(is_iq_result, Stanza),
-              Result = ?EL(Stanza, <<"query">>),
-              XData = ?EL(Result, <<"x">>),
-              #xmlelement{ attrs = _XAttrs,
-                           children = XChildren } = XData,
-              Reported = ?EL(XData, <<"reported">>),
-              ReportedFieldTups = field_tuples(Reported#xmlelement.children),
-              ItemTups = item_tuples(ReportedFieldTups, XChildren),
+              escalus:assert(is_error, [<<"cancel">>,
+                                        <<"service-unavailable">>], Stanza)
+      end).
 
-              %% exactly one result returned and its JID domain is correct
-              [{SomeJID, _JIDsFields}] = ItemTups,
-              {_Start, _Length} = binary:match(SomeJID, <<"@limited.search.ldap">>)
+%% disco#items to no.search.ldap says no vjud.limited.search.ldap exists
+search_not_in_service_discovery(Config) ->
+    escalus:story(
+      Config, [{ltd_search, 1}],
+      fun(LtdUsr) ->
+              %% Item
+              ItemsQuery = #xmlelement{ name = <<"query">>,
+                                        attrs = [{<<"xmlns">>,?NS_DISCO_ITEMS}],
+                                        children = []
+                                      },
+              ItemsIQGet = escalus_stanza:iq(
+                        <<"no.search.ldap">>, <<"get">>, [ItemsQuery]),
+              escalus:send(LtdUsr, ItemsIQGet),
+              ItemsStanza = escalus:wait_for_stanza(LtdUsr),
+              escalus:assert(is_iq_result, ItemsStanza),
+              false = has_item(ItemsStanza, <<"vjud.no.search.ldap">>)
       end).
 
 %%--------------------------------------------------------------------
@@ -507,10 +551,27 @@ assert_timeout_when_waiting_for_stanza(Error) ->
 has_feature(Stanza, Feature) ->
     Features = exml_query:paths(Stanza, [{element, <<"query">>},
                                          {element, <<"feature">>}]),
-    true = lists:any(fun(Item) ->
-                        exml_query:attr(Item, <<"var">>) == Feature
-                     end,
-                     Features).
+    lists:any(fun(Item) ->
+                      exml_query:attr(Item, <<"var">>) == Feature
+              end,
+              Features).
+
+has_item(Stanza, JID) ->
+    Items = exml_query:paths(Stanza, [{element, <<"query">>},
+                                      {element, <<"item">>}]),
+    lists:any(fun(Item) ->
+                      exml_query:attr(Item, <<"jid">>) == JID
+              end,
+              Items).
+
+has_identity(Stanza, Category, Type) ->
+    Idents = exml_query:paths(Stanza, [{element, <<"query">>},
+                                       {element, <<"identity">>}]),
+    lists:any(fun(Ident) ->
+                      (exml_query:attr(Ident, <<"category">>) == Category)
+                          and (exml_query:attr(Ident, <<"type">>) == Type)
+              end,
+              Idents).
 
 vcard(Body) ->
     #xmlelement{

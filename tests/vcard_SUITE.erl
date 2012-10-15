@@ -240,8 +240,8 @@ directory_service_vcard(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
-              IQGet = escalus_stanza:iq(
-                        <<"vjud.example.com">>, <<"get">>, [vcard([])]),
+              DirJID = <<"vjud.example.com">>,
+              IQGet = escalus_stanza:iq(DirJID, <<"get">>, [vcard([])]),
               escalus:send(John, IQGet),
 
               Stanza = escalus:wait_for_stanza(John),
@@ -255,15 +255,12 @@ vcard_service_discovery(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
-              Query = #xmlelement{ name = <<"query">>,
-                                   attrs = [{<<"xmlns">>,?NS_DISCO_INFO}],
-                                   children = []
-                                 },
+              Query = escalus_stanza:query_el(?NS_DISCO_INFO, []),
               IQGet = escalus_stanza:iq(<<"example.com">>, <<"get">>, [Query]),
               escalus:send(John, IQGet),
               Stanza = escalus:wait_for_stanza(John),
               escalus:assert(is_iq_result, Stanza),
-              true = has_feature(Stanza, <<"vcard-temp">>)
+              escalus:assert(has_feature, [<<"vcard-temp">>], Stanza)
     end).
 
 %%--------------------------------------------------------------------
@@ -277,19 +274,15 @@ req_search_fields(Config) ->
 escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
-              Query = #xmlelement{ name = <<"query">>,
-                                   attrs = [{<<"xmlns">>,?NS_SEARCH}],
-                                   children = []
-                                 },
-              IQGet = escalus_stanza:iq(
-                        <<"vjud.example.com">>, <<"get">>, [Query]),
+              DirJID = <<"vjud.example.com">>,
+              Query = escalus_stanza:query_el(?NS_SEARCH, []),
+              IQGet = escalus_stanza:iq(DirJID, <<"get">>, [Query]),
               escalus:send(John, IQGet),
               Stanza = escalus:wait_for_stanza(John),
               escalus:assert(is_iq_result, Stanza),
               Result = ?EL(Stanza, <<"query">>),
               XData = ?EL(Result, <<"x">>),
-              #xmlelement{ attrs = _XAttrs,
-                           children = XChildren } = XData,
+              #xmlelement{ children = XChildren } = XData,
               FieldTups = field_tuples(XChildren),
               true = lists:member({<<"text-single">>, <<"%u">>, <<"User">>},
                                   FieldTups),
@@ -299,23 +292,15 @@ escalus:story(
                                   FieldTups)
       end).
 
-
 search_open(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
+              DirJID = <<"vjud.example.com">>,
               Fields = [#xmlelement{ name = <<"field">>}],
-              Form = #xmlelement{ name = <<"x">>,
-                                     attrs = [{<<"xmlns">>,?NS_DATA_FORMS},
-                                              {<<"type">>, <<"submit">>}],
-                                     children = Fields
-                                   },
-              Query = #xmlelement{ name = <<"query">>,
-                                   attrs = [{<<"xmlns">>,?NS_SEARCH}],
-                                   children = [Form]
-                                 },
-              IQGet = escalus_stanza:iq(
-                        <<"vjud.example.com">>, <<"set">>, [Query]),
+              Form = escalus_stanza:x_data_form(<<"submit">>, Fields),
+              Query = escalus_stanza:query_el(?NS_SEARCH, [Form]),
+              IQGet = escalus_stanza:iq(DirJID, <<"set">>, [Query]),
               escalus:send(John, IQGet),
               Stanza = escalus:wait_for_stanza(John),
               escalus:assert(is_iq_result, Stanza),
@@ -348,6 +333,7 @@ search_empty(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
+              DirJID = <<"vjud.example.com">>,
               Fields = [#xmlelement{
                            name = <<"field">>,
                            attrs = [{<<"var">>,<<"sn">>}],
@@ -355,24 +341,15 @@ search_empty(Config) ->
                                           name= <<"value">>,
                                           children =
                                               [{xmlcdata,<<"nobody">>}]}]}],
-              Form = #xmlelement{ name = <<"x">>,
-                                     attrs = [{<<"xmlns">>,?NS_DATA_FORMS},
-                                              {<<"type">>, <<"submit">>}],
-                                     children = Fields
-                                   },
-              Query = #xmlelement{ name = <<"query">>,
-                                   attrs = [{<<"xmlns">>,?NS_SEARCH}],
-                                   children = [Form]
-                                 },
-              IQSearch = escalus_stanza:iq(
-                        <<"vjud.example.com">>, <<"set">>, [Query]),
+              Form = escalus_stanza:x_data_form(<<"submit">>, Fields),
+              Query = escalus_stanza:query_el(?NS_SEARCH, [Form]),
+              IQSearch = escalus_stanza:iq(DirJID, <<"set">>, [Query]),
               escalus:send(John, IQSearch),
               Stanza = escalus:wait_for_stanza(John),
               escalus:assert(is_iq_result, Stanza),
               Result = ?EL(Stanza, <<"query">>),
               XData = ?EL(Result, <<"x">>),
-              #xmlelement{ attrs = _XAttrs,
-                           children = XChildren } = XData,
+              #xmlelement{ children = XChildren } = XData,
               Reported = ?EL(XData, <<"reported">>),
               ReportedFieldTups = field_tuples(Reported#xmlelement.children),
 
@@ -383,6 +360,7 @@ search_some(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
+              DirJID = <<"vjud.example.com">>,
               Fields = [#xmlelement{
                            name = <<"field">>,
                            attrs = [{<<"var">>,<<"l">>}],
@@ -390,24 +368,15 @@ search_some(Config) ->
                                           name = <<"value">>,
                                           children =
                                               [{xmlcdata, ?MOSCOW_RU_BIN}]}]}],
-              Form = #xmlelement{ name = <<"x">>,
-                                  attrs = [{<<"xmlns">>,?NS_DATA_FORMS},
-                                           {<<"type">>, <<"submit">>}],
-                                  children = Fields
-                                },
-              Query = #xmlelement{ name = <<"query">>,
-                                   attrs = [{<<"xmlns">>,?NS_SEARCH}],
-                                   children = [Form]
-                                 },
-              IQGet = escalus_stanza:iq(
-                        <<"vjud.example.com">>, <<"set">>, [Query]),
+              Form = escalus_stanza:x_data_form(<<"submit">>, Fields),
+              Query = escalus_stanza:query_el(?NS_SEARCH, [Form]),
+              IQGet = escalus_stanza:iq(DirJID, <<"set">>, [Query]),
               escalus:send(John, IQGet),
               Stanza = escalus:wait_for_stanza(John),
               escalus:assert(is_iq_result, Stanza),
               Result = ?EL(Stanza, <<"query">>),
               XData = ?EL(Result, <<"x">>),
-              #xmlelement{ attrs = _XAttrs,
-                           children = XChildren } = XData,
+              #xmlelement{ children = XChildren } = XData,
               Reported = ?EL(XData, <<"reported">>),
               ReportedFieldTups = field_tuples(Reported#xmlelement.children),
 
@@ -432,25 +401,17 @@ search_open_limited(Config) ->
     escalus:story(
       Config, [{ltd_search, 1}],
       fun(LtdUsr) ->
+              DirJID = <<"directory.limited.search.ldap">>,
               Fields = [#xmlelement{ name = <<"field">>}],
-              Form = #xmlelement{ name = <<"x">>,
-                                     attrs = [{<<"xmlns">>,?NS_DATA_FORMS},
-                                              {<<"type">>, <<"submit">>}],
-                                     children = Fields
-                                   },
-              Query = #xmlelement{ name = <<"query">>,
-                                   attrs = [{<<"xmlns">>,?NS_SEARCH}],
-                                   children = [Form]
-                                 },
-              IQGet = escalus_stanza:iq(
-                        <<"directory.limited.search.ldap">>, <<"set">>, [Query]),
+              Form = escalus_stanza:x_data_form(<<"submit">>, Fields),
+              Query = escalus_stanza:query_el(?NS_SEARCH, [Form]),
+              IQGet = escalus_stanza:iq(DirJID, <<"set">>, [Query]),
               escalus:send(LtdUsr, IQGet),
               Stanza = escalus:wait_for_stanza(LtdUsr),
               escalus:assert(is_iq_result, Stanza),
               Result = ?EL(Stanza, <<"query">>),
               XData = ?EL(Result, <<"x">>),
-              #xmlelement{ attrs = _XAttrs,
-                           children = XChildren } = XData,
+              #xmlelement{ children = XChildren } = XData,
               Reported = ?EL(XData, <<"reported">>),
               ReportedFieldTups = field_tuples(Reported#xmlelement.children),
               ItemTups = item_tuples(ReportedFieldTups, XChildren),
@@ -468,32 +429,28 @@ search_in_service_discovery(Config) ->
     escalus:story(
       Config, [{ltd_search, 1}],
       fun(LtdUsr) ->
+              ServJID = <<"limited.search.ldap">>,
+              DirJID = <<"directory.limited.search.ldap">>,
+
               %% Item
-              ItemsQuery = #xmlelement{ name = <<"query">>,
-                                        attrs = [{<<"xmlns">>,?NS_DISCO_ITEMS}],
-                                        children = []
-                                      },
-              ItemsIQGet = escalus_stanza:iq(
-                        <<"limited.search.ldap">>, <<"get">>, [ItemsQuery]),
+              ItemsQuery = escalus_stanza:query_el(?NS_DISCO_ITEMS, []),
+              ItemsIQGet = escalus_stanza:iq(ServJID, <<"get">>, [ItemsQuery]),
               escalus:send(LtdUsr, ItemsIQGet),
               ItemsStanza = escalus:wait_for_stanza(LtdUsr),
               escalus:assert(is_iq_result, ItemsStanza),
-              true = has_item(ItemsStanza, <<"directory.limited.search.ldap">>),
+              escalus:assert(has_item, [DirJID], ItemsStanza),
 
               %% Feature
-              InfoQuery = #xmlelement{ name = <<"query">>,
-                                       attrs = [{<<"xmlns">>,?NS_DISCO_INFO}],
-                                       children = []
-                                     },
-              InfoIQGet = escalus_stanza:iq(
-                        <<"directory.limited.search.ldap">>, <<"get">>, [InfoQuery]),
+              InfoQuery = escalus_stanza:query_el(?NS_DISCO_INFO, []),
+              InfoIQGet = escalus_stanza:iq(DirJID, <<"get">>, [InfoQuery]),
               escalus:send(LtdUsr, InfoIQGet),
               InfoStanza = escalus:wait_for_stanza(LtdUsr),
               escalus:assert(is_iq_result, InfoStanza),
-              true = has_feature(InfoStanza, <<"jabber:iq:search">>),
+              escalus:assert(has_feature, [?NS_SEARCH], InfoStanza),
 
               %% Identity
-              true = has_identity(InfoStanza, <<"directory">>, <<"user">>)
+              escalus:assert(has_identity, [<<"directory">>,
+                                            <<"user">>], InfoStanza)
       end).
 
 %%------------------------------------
@@ -503,18 +460,11 @@ search_not_allowed(Config) ->
     escalus:story(
       Config, [{no_search, 1}],
       fun(NoSearchUsr) ->
+              DirJID = <<"vjud.no.search.ldap">>,
               Fields = [#xmlelement{ name = <<"field">>}],
-              Form = #xmlelement{ name = <<"x">>,
-                                     attrs = [{<<"xmlns">>,?NS_DATA_FORMS},
-                                              {<<"type">>, <<"submit">>}],
-                                     children = Fields
-                                   },
-              Query = #xmlelement{ name = <<"query">>,
-                                   attrs = [{<<"xmlns">>,?NS_SEARCH}],
-                                   children = [Form]
-                                 },
-              IQGet = escalus_stanza:iq(
-                        <<"vjud.no.search.ldap">>, <<"set">>, [Query]),
+              Form = escalus_stanza:x_data_form(<<"submit">>, Fields),
+              Query = escalus_stanza:query_el(?NS_SEARCH, [Form]),
+              IQGet = escalus_stanza:iq(DirJID, <<"set">>, [Query]),
               escalus:send(NoSearchUsr, IQGet),
               Stanza = escalus:wait_for_stanza(NoSearchUsr),
               escalus:assert(is_error, [<<"cancel">>,
@@ -526,17 +476,15 @@ search_not_in_service_discovery(Config) ->
     escalus:story(
       Config, [{ltd_search, 1}],
       fun(LtdUsr) ->
+              ServJID = <<"no.search.ldap">>,
+              DirJID = <<"vjud.no.search.ldap">>,
               %% Item
-              ItemsQuery = #xmlelement{ name = <<"query">>,
-                                        attrs = [{<<"xmlns">>,?NS_DISCO_ITEMS}],
-                                        children = []
-                                      },
-              ItemsIQGet = escalus_stanza:iq(
-                        <<"no.search.ldap">>, <<"get">>, [ItemsQuery]),
+              ItemsQuery = escalus_stanza:query_el(?NS_DISCO_ITEMS, []),
+              ItemsIQGet = escalus_stanza:iq(ServJID, <<"get">>, [ItemsQuery]),
               escalus:send(LtdUsr, ItemsIQGet),
               ItemsStanza = escalus:wait_for_stanza(LtdUsr),
               escalus:assert(is_iq_result, ItemsStanza),
-              false = has_item(ItemsStanza, <<"vjud.no.search.ldap">>)
+              escalus:assert(has_no_such_item, [DirJID], ItemsStanza)
       end).
 
 %%--------------------------------------------------------------------
@@ -547,31 +495,7 @@ search_not_in_service_discovery(Config) ->
 assert_timeout_when_waiting_for_stanza(Error) ->
     {'EXIT', {timeout_when_waiting_for_stanza,_}} = Error.
 
-%% TODO: copied from muc_SUITE - move to escalus_predicates
-has_feature(Stanza, Feature) ->
-    Features = exml_query:paths(Stanza, [{element, <<"query">>},
-                                         {element, <<"feature">>}]),
-    lists:any(fun(Item) ->
-                      exml_query:attr(Item, <<"var">>) == Feature
-              end,
-              Features).
 
-has_item(Stanza, JID) ->
-    Items = exml_query:paths(Stanza, [{element, <<"query">>},
-                                      {element, <<"item">>}]),
-    lists:any(fun(Item) ->
-                      exml_query:attr(Item, <<"jid">>) == JID
-              end,
-              Items).
-
-has_identity(Stanza, Category, Type) ->
-    Idents = exml_query:paths(Stanza, [{element, <<"query">>},
-                                       {element, <<"identity">>}]),
-    lists:any(fun(Ident) ->
-                      (exml_query:attr(Ident, <<"category">>) == Category)
-                          and (exml_query:attr(Ident, <<"type">>) == Type)
-              end,
-              Idents).
 
 vcard(Body) ->
     #xmlelement{

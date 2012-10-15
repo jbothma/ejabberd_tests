@@ -25,14 +25,7 @@
 %% Element CData
 -define(EL(Element, Name), exml_query:path(Element, [{element, Name}])).
 -define(EL_CD(Element, Name), exml_query:path(Element, [{element, Name}, cdata])).
--define(PHOTO_B64_MD5, <<41,39,104,189,75,25,191,200,129,237,251,129,91,76,195,
-  162>>).
 
-%% This is the UTF-8 of Москва
--define(MOSCOW_RU_BIN, <<208,156,208,190,209,129,208,186,208,178,208,176>>).
-
-%% This is the md5 of the UTF-8 of В Советской России, дорога разветвляется вы
--define(STREET_RU_MD5, <<45,220,43,98,22,144,242,20,45,41,160,214,142,89,215,30>>).
 
 %%--------------------------------------------------------------------
 %% Suite configuration
@@ -65,12 +58,11 @@ groups() ->
      {no_search, [], [
                       search_not_allowed,
                       search_not_in_service_discovery
-                      ]},
+                     ]},
      {limited_search, [], [
                            search_in_service_discovery,
-                           search_open_limited,
-                           search_some
-                           ]}
+                           search_open_limited
+                          ]}
     ].
 
 suite() ->
@@ -103,54 +95,27 @@ retrieve_own_card(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
+              MyJID = escalus_client:short_jid(John),
               IQGet = escalus_stanza:iq(<<"get">>, [vcard([])]),
               escalus:send(John, IQGet),
+
               Stanza = escalus:wait_for_stanza(John),
-
               escalus_pred:is_iq(<<"result">>, Stanza),
-
               VCard = ?EL(Stanza, <<"vCard">>),
-              <<"john">> = ?EL_CD(VCard, <<"NICKNAME">>),
-              <<"Doe, John">> = ?EL_CD(VCard, <<"FN">>),
-              <<"john@example.com">> = ?EL_CD(VCard, <<"JABBERID">>),
-              <<"Executive Director">> = ?EL_CD(VCard, <<"TITLE">>),
-              <<"Patron Saint">> = ?EL_CD(VCard, <<"ROLE">>),
-              <<"active">> = ?EL_CD(VCard, <<"DESC">>),
-              <<"http://john.doe/">> = ?EL_CD(VCard, <<"URL">>),
-
-              EMAIL = ?EL(VCard, <<"EMAIL">>),
-              <<"john@mail.example.com">> = ?EL_CD(EMAIL, <<"USERID">>),
-
-              N = ?EL(VCard, <<"N">>),
-              <<"Doe">> = ?EL_CD(N, <<"FAMILY">>),
-              <<"John">> = ?EL_CD(N, <<"GIVEN">>),
-              <<"F.">> = ?EL_CD(N, <<"MIDDLE">>),
-
-              ADR = ?EL(VCard, <<"ADR">>),
-              <<"1899 Wynkoop Street">> = ?EL_CD(ADR, <<"STREET">>),
-              <<"Denver">> = ?EL_CD(ADR, <<"LOCALITY">>),
-              <<"CO">> = ?EL_CD(ADR, <<"REGION">>),
-              <<"91210">> = ?EL_CD(ADR, <<"PCODE">>),
-              %% TODO: Fix country: "additional info: attribute 'c' not allowed"
-              %%<<"US">> = ?EL_CD(ADR, <<"CTRY">>),
-
-              TEL = ?EL(VCard, <<"TEL">>),
-              <<"+1 512 305 0280">> = ?EL_CD(TEL, <<"NUMBER">>),
-
-              ORG = ?EL(VCard, <<"ORG">>),
-              <<"The world">> = ?EL_CD(ORG, <<"ORGNAME">>),
-              <<"People">> = ?EL_CD(ORG, <<"ORGUNIT">>),
-
+              check_vcard(Config, MyJID, VCard),
               PHOTO = ?EL(VCard, <<"PHOTO">>),
-              ?PHOTO_B64_MD5 = crypto:md5(?EL_CD(PHOTO, <<"BINVAL">>))
+              {_, PhotoB64MD5} =
+                  vcard_data(john_example.com_photo_b64_md5, Config),
+              PhotoB64MD5 = crypto:md5(?EL_CD(PHOTO, <<"BINVAL">>))
       end).
+
 
 user_doesnt_exist(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
-              IQGet = escalus_stanza:iq(
-                        <<"nobody@example.com">>, <<"get">>, vcard([])),
+              BadJID = <<"nobody@example.com">>,
+              IQGet = escalus_stanza:iq(BadJID, <<"get">>, vcard([])),
               escalus:send(John, IQGet),
 
               Stanza = escalus:wait_for_stanza(John),
@@ -166,8 +131,8 @@ filtered_user_is_nonexistent(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
-              IQGet = escalus_stanza:iq(
-                        <<"tom@example.com">>,<<"get">>,[vcard([])]),
+              FilteredJID = <<"tom@example.com">>,
+              IQGet = escalus_stanza:iq(FilteredJID, <<"get">>, [vcard([])]),
               escalus:send(John, IQGet),
 
               Stanza = escalus:wait_for_stanza(John),
@@ -199,26 +164,27 @@ update_card(Config) ->
 retrieve_others_card(Config) ->
     escalus:story(
       Config, [{valid, 1}, {valid2, 1}],
-      fun(John, Dave) ->
-              IQGet = escalus_stanza:iq(<<"dave@example.com">>, <<"get">>, [vcard([])]),
+      fun(John, Other) ->
+              OtherJID = escalus_client:short_jid(Other),
+              IQGet = escalus_stanza:iq(OtherJID, <<"get">>, [vcard([])]),
               escalus:send(John, IQGet),
 
               Stanza = escalus:wait_for_stanza(John),
               escalus_pred:is_iq(<<"result">>, Stanza),
 
               VCard = ?EL(Stanza, <<"vCard">>),
-              <<"dave">> = ?EL_CD(VCard, <<"NICKNAME">>),
-              <<"Davidson, Dave">> = ?EL_CD(VCard, <<"FN">>),
-              <<"dave@example.com">> = ?EL_CD(VCard, <<"JABBERID">>),
+              check_vcard(Config, OtherJID, VCard),
 
+              {_, StreetMD5} =
+                  vcard_data(dave_example.com_street_md5, Config),
               ADR = ?EL(VCard, <<"ADR">>),
-              ?STREET_RU_MD5 = crypto:md5(?EL_CD(ADR, <<"STREET">>)),
+              StreetMD5 = crypto:md5(?EL_CD(ADR, <<"STREET">>)),
 
               %% In accordance with XMPP Core [5], a compliant server MUST
               %% respond on behalf of the requestor and not forward the IQ to
               %% the requestee's connected resource.
 
-              Error = (catch escalus:wait_for_stanza(Dave)),
+              Error = (catch escalus:wait_for_stanza(Other)),
               assert_timeout_when_waiting_for_stanza(Error)
       end).
 
@@ -226,14 +192,15 @@ server_vcard(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(John) ->
-              IQGet = escalus_stanza:iq(<<"example.com">>, <<"get">>, [vcard([])]),
+              ServJID = <<"example.com">>,
+              IQGet = escalus_stanza:iq(ServJID, <<"get">>, [vcard([])]),
               escalus:send(John, IQGet),
 
               Stanza = escalus:wait_for_stanza(John),
               escalus_pred:is_iq(<<"result">>, Stanza),
 
               VCard = ?EL(Stanza, <<"vCard">>),
-              <<"ejabberd">> = ?EL_CD(VCard, <<"FN">>)
+              check_vcard(Config, ServJID, VCard)
       end).
 
 directory_service_vcard(Config) ->
@@ -248,7 +215,7 @@ directory_service_vcard(Config) ->
               escalus_pred:is_iq(<<"result">>, Stanza),
 
               VCard = ?EL(Stanza, <<"vCard">>),
-              <<"ejabberd/mod_vcard">> = ?EL_CD(VCard, <<"FN">>)
+              check_vcard(Config, DirJID, VCard)
       end).
 
 vcard_service_discovery(Config) ->
@@ -314,19 +281,7 @@ search_open(Config) ->
               %% Basically test that the right values exist
               %% and map to the right column headings
               ItemTups = item_tuples(ReportedFieldTups, XChildren),
-              {_,JohnsFields} =
-                  lists:keyfind(<<"john@example.com">>, 1, ItemTups),
-              %% TODO: we can probably check many fields with a lists:map
-              true = lists:member({<<"text-single">>,
-                                      <<"EMAIL">>, <<"Email">>,
-                                      <<"john@mail.example.com">>},
-                                     JohnsFields),
-              {_, DavesFields} =
-                  lists:keyfind(<<"dave@example.com">>, 1, ItemTups),
-              true = lists:member({<<"text-single">>,
-                                      <<"FN">>, <<"Full Name">>,
-                                      <<"Davidson, Dave">>},
-                                     DavesFields)
+              {_, ItemTups} = expected_search_results(example.com_open, Config)
       end).
 
 search_empty(Config) ->
@@ -361,13 +316,14 @@ search_some(Config) ->
       Config, [{valid, 1}],
       fun(John) ->
               DirJID = <<"vjud.example.com">>,
+              {_, MoscowRUBin} = vcard_data(moscow_ru_utf8, Config),
               Fields = [#xmlelement{
                            name = <<"field">>,
                            attrs = [{<<"var">>,<<"l">>}],
                            children = [#xmlelement{
                                           name = <<"value">>,
                                           children =
-                                              [{xmlcdata, ?MOSCOW_RU_BIN}]}]}],
+                                              [{xmlcdata, MoscowRUBin}]}]}],
               Form = escalus_stanza:x_data_form(<<"submit">>, Fields),
               Query = escalus_stanza:query_el(?NS_SEARCH, [Form]),
               IQGet = escalus_stanza:iq(DirJID, <<"set">>, [Query]),
@@ -383,15 +339,7 @@ search_some(Config) ->
               %% Basically test that the right values exist
               %% and map to the right column headings
               ItemTups = item_tuples(ReportedFieldTups, XChildren),
-              false = lists:keyfind(<<"john@example.com">>, 1, ItemTups),
-              %% TODO: we can probably check many fields with a lists:map
-              %% and data from test.config.
-              {_, DavesFields} = lists:keyfind(
-                                   <<"dave@example.com">>, 1, ItemTups),
-              true = lists:member({<<"text-single">>,
-                                      <<"FN">>, <<"Full Name">>,
-                                      <<"Davidson, Dave">>},
-                                     DavesFields)
+              {_, ItemTups} = expected_search_results(example.com_some, Config)
       end).
 
 %%------------------------------------
@@ -491,6 +439,15 @@ search_not_in_service_discovery(Config) ->
 %% Helper functions
 %%--------------------------------------------------------------------
 
+vcard_data(Key, Config) ->
+    lists:keyfind(Key, 1, escalus_config:get_config(vcard_data, Config)).
+
+expected_search_results(Key, Config) ->
+    {_, ExpectedResults} =
+        lists:keyfind(expected_results, 1,
+                      escalus_config:get_config(search_data, Config)),
+    lists:keyfind(Key, 1, ExpectedResults).
+
 %% TODO: copied from ldap_SUTE - move to escalus_predicates
 assert_timeout_when_waiting_for_stanza(Error) ->
     {'EXIT', {timeout_when_waiting_for_stanza,_}} = Error.
@@ -558,3 +515,28 @@ item_tuples(ReportedFieldTups, [#xmlelement{name = <<"item">>,
     [{JID, ItemFieldTups}|item_tuples(ReportedFieldTups, Rest)];
 item_tuples(ReportedFieldTypes, [_SomeOtherChild | Rest]) ->
     item_tuples(ReportedFieldTypes, Rest).
+
+
+%% This tests that at least the values in the VCardExpected are in the VCardUnderTest.
+%% Any extra values in the vcard are ignored by this function and should be checked or
+%% rejected elsewhere.
+%% crash means fail, return means success.
+check_vcard(Config, JID, VCardUnderTest) ->
+    {_, ExpectedVCards} = vcard_data(expected_vcards, Config),
+    {JID, VCardExpected} = lists:keyfind(JID, 1, ExpectedVCards),
+    check_xml_element(VCardExpected, VCardUnderTest).
+
+
+check_xml_element([], _ElUnderTest) ->
+    ok;  %% just return true to be consistent with other clauses.
+check_xml_element([{ExpdFieldName, ExpdChildren}|Rest], ElUnderTest)
+  when is_list(ExpdChildren) ->
+    check_xml_element(ExpdChildren, ?EL(ElUnderTest, ExpdFieldName)),
+    check_xml_element(Rest, ElUnderTest);
+check_xml_element([{ExpdFieldName, ExpdCData}|Rest], ElUnderTest) ->
+    case ?EL_CD(ElUnderTest, ExpdFieldName) of
+        ExpdCData ->
+            check_xml_element(Rest, ElUnderTest);
+        Else ->
+            ct:fail("Expected ~p got ~p~n", [ExpdCData, Else])
+    end.

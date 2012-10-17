@@ -33,7 +33,7 @@ all_tests() ->
     ].
 
 groups() ->
-    [{s2s_tests, [sequence], all_tests()}].
+    [{s2s_tests, [], all_tests()}].
 
 suite() ->
     escalus:suite().

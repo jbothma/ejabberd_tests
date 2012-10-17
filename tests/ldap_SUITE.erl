@@ -38,7 +38,7 @@ groups() ->
                  login_fail_local_filter
                 ]},
      {eunit, [], [
-                  eldap_utils
+                  ejabberd_ldap_utils
                   ]}
     ].
 
@@ -100,8 +100,8 @@ login_fail_local_filter(Config) ->
 %% It works as long as the test only depends on the module in question.
 %%--------------------------------------------------------------------
 
-eldap_utils(_Config) ->
-    Mod = eldap_utils,
+ejabberd_ldap_utils(_Config) ->
+    Mod = ejabberd_ldap_utils,
     {Mod, Bin, FName} = escalus_ejabberd:rpc(code, get_object_code, [Mod]),
     {module, Mod} = code:load_binary(Mod, FName, Bin),
     ok = Mod:test().

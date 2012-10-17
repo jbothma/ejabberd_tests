@@ -17,6 +17,7 @@
 -module(ldap_SUITE).
 -compile(export_all).
 
+-include_lib("escalus/include/escalus_xmlns.hrl").
 -include_lib("escalus/include/escalus.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("exml/include/exml.hrl").
@@ -27,18 +28,18 @@
 
 all() ->
     [{group, auth}
+     ,{group, inband_password}
      ,{group, eunit}].
 
 groups() ->
-    [{auth, [], [
-                 login,
+    [{auth, [], [login,
                  login_negative,
                  login_fail_filter,
                  login_fail_dn_filter,
                  login_fail_local_filter
                 ]},
-     {eunit, [], [
-                  ejabberd_ldap_utils
+     {inband_password, [], [change_password]},
+     {eunit, [], [ejabberd_ldap_utils
                   ]}
     ].
 
@@ -51,7 +52,9 @@ suite() ->
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    escalus:init_per_suite(Config).
+    Users = escalus_config:get_config(escalus_ldap_users, Config, []),
+    NewConfig = lists:keystore(escalus_users, 1, Config, {escalus_users, Users}),
+    escalus:init_per_suite(NewConfig).
 
 end_per_suite(Config) ->
     escalus:end_per_suite(Config).
@@ -92,6 +95,36 @@ login_fail_local_filter(Config) ->
     MarkBad = get_ldap_user(fail_local_filter2, Config),
     {error, _} = escalus_connection:start(MarkBad).
 
+
+%%--------------------------------------------------------------------
+%% XEP-0077: In-Band Registration Test cases
+%% mod_vcard_ldap only supports password change
+%%--------------------------------------------------------------------
+
+change_password(Config) ->
+    ServJID = <<"example.com">>,
+    escalus:story(
+      Config, [{valid, 1}],
+      fun(User) ->
+              test_change_password(ServJID, User, <<"john_changed_password">>)
+      end),
+    escalus:story(
+      Config, [{valid_other_pwd, 1}],
+      fun(User) ->
+              test_change_password(ServJID, User, <<"johnldap">>)
+      end).
+
+test_change_password(ServerJID, Client, NewPassword) ->
+    Username = escalus_client:username(Client),
+    Children = [#xmlelement{ name = <<"username">>,
+                             children = {xmlcdata, Username}},
+                #xmlelement{ name = <<"password">>,
+                             children = {xmlcdata, NewPassword}}],
+    Query = escalus_stanza:query_el(?NS_INBAND_REGISTER, Children),
+    IQSet = escalus_stanza:iq(ServerJID, <<"set">>, [Query]),
+    escalus:send(Client, IQSet),
+    Stanza = escalus:wait_for_stanza(Client),
+    escalus:assert(is_iq_result, Stanza).
 
 %%--------------------------------------------------------------------
 %% drive module unit tests from CT

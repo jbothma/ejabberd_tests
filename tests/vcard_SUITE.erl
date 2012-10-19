@@ -47,10 +47,12 @@ all() ->
     ].
 
 groups() ->
-    [{mnesia, [],
-      [retrieve_own_card_mnesia
+    %% setting test data before tests is proving awkward so might as well use the
+    %% data set in the update tests to test the rest.
+    [{mnesia, [sequence],
+      [update_own_card_mnesia
+       ,retrieve_own_card_mnesia
        ,user_doesnt_exist_mnesia
-       ,update_own_card_mnesia
        ,update_other_card_mnesia
        ,retrieve_others_card_mnesia
        ,vcard_service_discovery_mnesia
@@ -75,23 +77,23 @@ suite() ->
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    escalus:init_per_suite(Config).
+%    dbg:tracer(),
+%    dbg:p(all, c),
+%    dbg:tpl(escalus_config, []),
+%    dbg:tpl(escalus_, []),
+%    dbg:tpl(escalus_session, []),
+
+    ok = ct:require({vcard, mnesia}),
+
+    %% use the relevant users
+    Users = escalus_config:get_config(escalus_vcard_mnesia_users, Config, []),
+    NewConfig = lists:keystore(escalus_users, 1, Config, {escalus_users, Users}),
+
+    escalus_users:create_users(NewConfig, Users),
+    escalus:init_per_suite(NewConfig).
 
 end_per_suite(Config) ->
     escalus:end_per_suite(Config).
-
-init_per_group(mnesia, Config) ->
-    %% use the relevant users
-
-    %% populate some vcards
-    escalus:story(
-      Config, [{valid, 1}, {valid2, 1}],
-      fun(Client1, Client2) ->
-              Fields = [vcard_cdata_field(<<"FN">>, <<"New name">>)],
-              update_vcard(Client1, Fields),
-              Fields = [vcard_cdata_field(<<"FN">>, <<"New name">>)],
-              update_vcard(Client2, Fields)
-      end).
 
 
 init_per_testcase(CaseName, Config) ->
@@ -105,12 +107,47 @@ end_per_testcase(CaseName, Config) ->
 %% XEP-0054: vcard-temp Test cases
 %%--------------------------------------------------------------------
 
+update_own_card_mnesia(Config) ->
+    escalus:story(
+      Config, [{user1, 1}, {user2, 1}],
+      fun(Client1, Client2) ->
+              %% set some initial value different from the actual test data
+              %% so we know it really got updated and wasn't just old data
+              Client1Fields = [vcard_cdata_field(<<"FN">>, <<"Old name">>)],
+              Client1SetResultStanza = update_vcard(Client1, Client1Fields),
+              escalus:assert(is_iq_result, Client1SetResultStanza),
+
+              Client1GetResultStanza = request_vcard(Client1),
+              <<"Old name">> =
+                  stanza_get_vcard_field_cdata(Client1GetResultStanza, <<"FN">>),
+
+              %% Setup test data for remaining tests
+              JID1 = escalus_client:short_jid(Client1),
+              Client1VCardTups =
+                  escalus_config:get_ct({vcard, mnesia, expected_vcards, JID1}),
+              Client1Fields2 = tuples_to_vcard_fields(Client1VCardTups),
+              _SetResltStanza2 = update_vcard(Client1, Client1Fields2),
+
+              %% might as well check this more serious update too
+              Client1GetResultStanza2 = request_vcard(Client1),
+              check_vcard(Client1VCardTups, Client1GetResultStanza2),
+
+              JID2 = escalus_client:short_jid(Client2),
+              Client2VCardTups =
+                  escalus_config:get_ct({vcard, mnesia, expected_vcards, JID2}),
+              Client2Fields = tuples_to_vcard_fields(Client2VCardTups),
+              _Stanza = update_vcard(Client2, Client2Fields)
+      end).
+
 retrieve_own_card_mnesia(Config) ->
     escalus:story(
       Config, [{valid, 1}],
       fun(Client) ->
               Stanza = request_vcard(Client),
-              check_vcard(Config, escalus_client:short_jid(Client), Stanza)
+              JID1 = escalus_client:short_jid(Client),
+              ClientVCardTups =
+                  escalus_config:get_ct({vcard, mnesia, expected_vcards, JID1}),
+              check_vcard(ClientVCardTups, Stanza)
       end).
 
 
@@ -128,28 +165,20 @@ user_doesnt_exist_mnesia(Config) ->
                                         <<"service-unavailable">>], Stanza)
       end).
 
-update_own_card_mnesia(Config) ->
-    escalus:story(
-      Config, [{valid, 1}],
-      fun(Client) ->
-              Fields = [vcard_cdata_field(<<"FN">>, <<"New name">>)],
-              Stanza = update_vcard(Client, Fields),
-
-              %% success
-              %% retrieve and check
-              ct:fail(todo)
-      end).
-
 update_other_card_mnesia(Config) ->
     escalus:story(
-      Config, [{valid, 1}],
-      fun(Client) ->
+      Config, [{user1, 1}, {user2, 1}],
+      fun(Client, OtherClient) ->
+              OtherJID = escalus_client:short_jid(OtherClient),
               Fields = [vcard_cdata_field(<<"FN">>, <<"New name">>)],
-              Stanza = update_vcard(Client, Fields),
+              Stanza = update_vcard(OtherJID, Client, Fields),
 
               %% auth forbidden is also allowed
               escalus:assert(is_error, [<<"cancel">>,
-                                        <<"not-allowed">>], Stanza)
+                                        <<"not-allowed">>], Stanza),
+
+              %% check that nothing was changed
+              ct:fail(todo)
       end).
 
 retrieve_others_card_mnesia(Config) ->
@@ -158,9 +187,9 @@ retrieve_others_card_mnesia(Config) ->
       fun(Client, OtherClient) ->
               OtherJID = escalus_client:short_jid(OtherClient),
               Stanza = request_vcard(OtherJID, Client),
-              check_vcard(Config, OtherJID, Stanza),
+              check_vcard(OtherJID, Stanza),
 
-              StreetMD5 = ct:config_get({vcard, mnesia, utf8_street_md5}),
+              StreetMD5 = ct:config_get({vcard, common, utf8_street_md5}),
               ADR = stanza_get_vcard_field(Stanza, <<"ADR">>),
               StreetMD5 = crypto:md5(?EL_CD(ADR, <<"STREET">>)),
 
@@ -178,7 +207,7 @@ server_vcard_mnesia(Config) ->
       fun(Client) ->
               ServJID = ct:get_config({vcard, mnesia, server_jid}),
               Stanza = request_vcard(ServJID, Client),
-              check_vcard(Config, ServJID, Stanza)
+              check_vcard(ServJID, Stanza)
       end).
 
 directory_service_vcard_mnesia(Config) ->
@@ -187,7 +216,7 @@ directory_service_vcard_mnesia(Config) ->
       fun(Client) ->
               DirJID = ct:get_config({vcard, mnesia, directory_jid}),
               Stanza = request_vcard(DirJID, Client),
-              check_vcard(Config, DirJID, Stanza)
+              check_vcard(DirJID, Stanza)
       end).
 
 vcard_service_discovery_mnesia(Config) ->
@@ -286,7 +315,7 @@ search_some(Config) ->
       Config, [{valid, 1}],
       fun(John) ->
               DirJID = <<"vjud.example.com">>,
-              {_, MoscowRUBin} = vcard_data(moscow_ru_utf8, Config),
+              MoscowRUBin = escalus_config:get_ct({vcard, common, moscow_ru_utf8}),
               Fields = [#xmlelement{
                            name = <<"field">>,
                            attrs = [{<<"var">>,<<"l">>}],
@@ -409,9 +438,6 @@ search_not_in_service_discovery(Config) ->
 %% Helper functions
 %%--------------------------------------------------------------------
 
-vcard_data(Key, Config) ->
-    lists:keyfind(Key, 1, escalus_config:get_config(vcard_data, Config)).
-
 expected_search_results(Key, Config) ->
     {_, ExpectedResults} =
         lists:keyfind(expected_results, 1,
@@ -438,6 +464,26 @@ vcard_cdata_field(Name, Value) ->
                 attrs = [],
                 children = [{xmlcdata, Value}]}.
 
+vcard_field(Name, Children) ->
+    #xmlelement{name = Name,
+                attrs = [],
+                children = Children}.
+
+tuples_to_vcard_fields([]) ->
+    [];
+tuples_to_vcard_fields([{Name, Value}|Rest]) when is_binary(Value) ->
+    [vcard_cdata_field(Name, Value) | tuples_to_vcard_fields(Rest)];
+tuples_to_vcard_fields([{Name, Children}|Rest]) when is_list(Children) ->
+    [vcard_field(Name, tuples_to_vcard_fields(Children))
+     | tuples_to_vcard_fields(Rest)].
+
+stanza_get_vcard_field(Stanza, FieldName) ->
+    VCard = ?EL(Stanza, <<"vCard">>),
+    ?EL(VCard, FieldName).
+
+stanza_get_vcard_field_cdata(Stanza, FieldName) ->
+    VCard = ?EL(Stanza, <<"vCard">>),
+    ?EL_CD(VCard, FieldName).
 
 %%---------------------
 %% test helpers
@@ -498,16 +544,15 @@ item_tuples(ReportedFieldTypes, [_SomeOtherChild | Rest]) ->
     item_tuples(ReportedFieldTypes, Rest).
 
 
-%% This tests that at least the values in the VCardExpected are in the VCardUnderTest.
+%% This tests that at least the values in the ExpectedVCardTups are in the
+%% VCardUnderTest.
 %% Any extra values in the vcard are ignored by this function and should be checked or
 %% rejected elsewhere.
 %% crash means fail, return means success.
-check_vcard(Config, JID, Stanza) ->
+check_vcard(ExpectedVCardTups, Stanza) ->
     escalus_pred:is_iq(<<"result">>, Stanza),
     VCardUnderTest = ?EL(Stanza, <<"vCard">>),
-    {_, ExpectedVCards} = vcard_data(expected_vcards, Config),
-    {JID, VCardExpected} = lists:keyfind(JID, 1, ExpectedVCards),
-    check_xml_element(VCardExpected, VCardUnderTest).
+    check_xml_element(ExpectedVCardTups, VCardUnderTest).
 
 
 check_xml_element([], _ElUnderTest) ->
@@ -527,11 +572,6 @@ check_xml_element([{ExpdFieldName, ExpdCData}|Rest], ElUnderTest) ->
 
 %%--------------------------
 %% common actual XMPP exchanges
-
-stanza_get_vcard_field(Stanza, FieldName) ->
-    VCard = ?EL(Stanza, <<"vCard">>),
-    ?EL(VCard, FieldName).
-
 
 request_vcard(Client) ->
     IQGet = escalus_stanza:iq(<<"get">>, [vcard([])]),

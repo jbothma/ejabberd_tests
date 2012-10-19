@@ -141,12 +141,12 @@ update_own_card_mnesia(Config) ->
 
 retrieve_own_card_mnesia(Config) ->
     escalus:story(
-      Config, [{valid, 1}],
+      Config, [{user1, 1}],
       fun(Client) ->
               Stanza = request_vcard(Client),
-              JID1 = escalus_client:short_jid(Client),
+              JID = escalus_client:short_jid(Client),
               ClientVCardTups =
-                  escalus_config:get_ct({vcard, mnesia, expected_vcards, JID1}),
+                  escalus_config:get_ct({vcard, mnesia, expected_vcards, JID}),
               check_vcard(ClientVCardTups, Stanza)
       end).
 
@@ -157,9 +157,9 @@ retrieve_own_card_mnesia(Config) ->
 %% <service-unavailable/> or <item-not-found/>
 user_doesnt_exist_mnesia(Config) ->
     escalus:story(
-      Config, [{valid, 1}],
+      Config, [{user1, 1}],
       fun(Client) ->
-              BadJID = <<"nobody@example.com">>,
+              BadJID = escalus_config:get_ct({vcard, mnesia, nonexistent_jid}),
               Stanza = request_vcard(BadJID, Client),
               escalus:assert(is_error, [<<"cancel">>,
                                         <<"service-unavailable">>], Stanza)
@@ -169,27 +169,30 @@ update_other_card_mnesia(Config) ->
     escalus:story(
       Config, [{user1, 1}, {user2, 1}],
       fun(Client, OtherClient) ->
-              OtherJID = escalus_client:short_jid(OtherClient),
+              JID = escalus_client:short_jid(Client),
               Fields = [vcard_cdata_field(<<"FN">>, <<"New name">>)],
-              Stanza = update_vcard(OtherJID, Client, Fields),
+              Stanza = update_vcard(JID, OtherClient, Fields),
 
               %% auth forbidden is also allowed
               escalus:assert(is_error, [<<"cancel">>,
                                         <<"not-allowed">>], Stanza),
 
               %% check that nothing was changed
-              ct:fail(todo)
+              retrieve_own_card_mnesia(Config)
       end).
 
 retrieve_others_card_mnesia(Config) ->
     escalus:story(
-      Config, [{valid, 1}, {valid2, 1}],
+      Config, [{user1, 1}, {user2, 1}],
       fun(Client, OtherClient) ->
               OtherJID = escalus_client:short_jid(OtherClient),
               Stanza = request_vcard(OtherJID, Client),
-              check_vcard(OtherJID, Stanza),
 
-              StreetMD5 = ct:config_get({vcard, common, utf8_street_md5}),
+              OtherClientVCardTups =
+                  escalus_config:get_ct({vcard, mnesia, expected_vcards, OtherJID}),
+              check_vcard(OtherClientVCardTups, Stanza),
+
+              StreetMD5 = escalus_config:get_ct({vcard, common, utf8_street_md5}),
               ADR = stanza_get_vcard_field(Stanza, <<"ADR">>),
               StreetMD5 = crypto:md5(?EL_CD(ADR, <<"STREET">>)),
 

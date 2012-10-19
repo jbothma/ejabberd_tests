@@ -206,27 +206,31 @@ retrieve_others_card_mnesia(Config) ->
 
 server_vcard_mnesia(Config) ->
     escalus:story(
-      Config, [{valid, 1}],
+      Config, [{user1, 1}],
       fun(Client) ->
-              ServJID = ct:get_config({vcard, mnesia, server_jid}),
+              ServJID = escalus_config:get_ct({vcard, mnesia, server_jid}),
               Stanza = request_vcard(ServJID, Client),
-              check_vcard(ServJID, Stanza)
+              ServerVCardTups =
+                  escalus_config:get_ct({vcard, mnesia, expected_vcards, ServJID}),
+              check_vcard(ServerVCardTups, Stanza)
       end).
 
 directory_service_vcard_mnesia(Config) ->
     escalus:story(
-      Config, [{valid, 1}],
+      Config, [{user1, 1}],
       fun(Client) ->
-              DirJID = ct:get_config({vcard, mnesia, directory_jid}),
+              DirJID = escalus_config:get_ct({vcard, mnesia, directory_jid}),
               Stanza = request_vcard(DirJID, Client),
-              check_vcard(DirJID, Stanza)
+              DirVCardTups =
+                  escalus_config:get_ct({vcard, mnesia, expected_vcards, DirJID}),
+              check_vcard(DirVCardTups, Stanza)
       end).
 
 vcard_service_discovery_mnesia(Config) ->
     escalus:story(
-      Config, [{valid, 1}],
+      Config, [{user1, 1}],
       fun(Client) ->
-              ServJID = ct:get_config({vcard, mnesia, server_jid}),
+              ServJID = escalus_config:get_ct({vcard, mnesia, server_jid}),
               Stanza = request_disco_info(ServJID, Client),
               escalus:assert(is_iq_result, Stanza),
               escalus:assert(has_feature, [<<"vcard-temp">>], Stanza)
@@ -239,21 +243,22 @@ vcard_service_discovery_mnesia(Config) ->
 
 %% example.com
 
-req_search_fields(Config) ->
+req_search_fields_mnesia(Config) ->
 escalus:story(
-      Config, [{valid, 1}],
-      fun(John) ->
-              DirJID = <<"vjud.example.com">>,
+      Config, [{user1, 1}],
+      fun(Client) ->
+              DirJID = escalus_config:get_ct({vcard, mnesia, directory_jid}),
               Query = escalus_stanza:query_el(?NS_SEARCH, []),
               IQGet = escalus_stanza:iq(DirJID, <<"get">>, [Query]),
-              escalus:send(John, IQGet),
-              Stanza = escalus:wait_for_stanza(John),
+              escalus:send(Client, IQGet),
+              Stanza = escalus:wait_for_stanza(Client),
               escalus:assert(is_iq_result, Stanza),
               Result = ?EL(Stanza, <<"query">>),
               XData = ?EL(Result, <<"x">>),
               #xmlelement{ children = XChildren } = XData,
               FieldTups = field_tuples(XChildren),
-              true = lists:member({<<"text-single">>, <<"%u">>, <<"User">>},
+              true = lists:member({<<"text-single">>,
+                                   <<"%u">>, <<"User">>},
                                   FieldTups),
               true = lists:member({<<"text-single">>,
                                    <<"displayName">>,
@@ -261,17 +266,18 @@ escalus:story(
                                   FieldTups)
       end).
 
-search_open(Config) ->
+search_open_mnesia(Config) ->
     escalus:story(
-      Config, [{valid, 1}],
-      fun(John) ->
-              DirJID = <<"vjud.example.com">>,
-              Fields = [#xmlelement{ name = <<"field">>}],
+      Config, [{user1, 1}],
+      fun(Client) ->
+              DirJID = escalus_config:get_ct({vcard, mnesia, directory_jid}),
+              Fields = [#xmlelement{ name = <<"field">> }],
               Form = escalus_stanza:x_data_form(<<"submit">>, Fields),
               Query = escalus_stanza:query_el(?NS_SEARCH, [Form]),
               IQGet = escalus_stanza:iq(DirJID, <<"set">>, [Query]),
-              escalus:send(John, IQGet),
-              Stanza = escalus:wait_for_stanza(John),
+ct:pal("~p~n",[IQGet]),
+              escalus:send(Client, IQGet),
+              Stanza = escalus:wait_for_stanza(Client),
               escalus:assert(is_iq_result, Stanza),
               Result = ?EL(Stanza, <<"query">>),
               XData = ?EL(Result, <<"x">>),
@@ -283,7 +289,9 @@ search_open(Config) ->
               %% Basically test that the right values exist
               %% and map to the right column headings
               ItemTups = item_tuples(ReportedFieldTups, XChildren),
-              {_, ItemTups} = expected_search_results(example.com_open, Config)
+              ExpectedItemTups =
+                  escalus_config:ct_get({vcard, mnesia, search_results, open}),
+              ExpectedItemTups = ItemTups
       end).
 
 search_empty(Config) ->

@@ -58,7 +58,7 @@ groups() ->
        ,vcard_service_discovery_mnesia
        ,server_vcard_mnesia
        ,directory_service_vcard_mnesia
-       ,req_search_fields_mnesia
+       ,request_search_fields_mnesia
        ,search_open_mnesia
        ,search_empty_mnesia
        ,search_some_mnesia
@@ -77,12 +77,6 @@ suite() ->
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-%    dbg:tracer(),
-%    dbg:p(all, c),
-%    dbg:tpl(escalus_config, []),
-%    dbg:tpl(escalus_, []),
-%    dbg:tpl(escalus_session, []),
-
     ok = ct:require({vcard, mnesia}),
 
     %% use the relevant users
@@ -243,8 +237,8 @@ vcard_service_discovery_mnesia(Config) ->
 
 %% example.com
 
-req_search_fields_mnesia(Config) ->
-escalus:story(
+request_search_fields_mnesia(Config) ->
+    escalus:story(
       Config, [{user1, 1}],
       fun(Client) ->
               DirJID = escalus_config:get_ct({vcard, mnesia, directory_jid}),
@@ -258,10 +252,10 @@ escalus:story(
               #xmlelement{ children = XChildren } = XData,
               FieldTups = field_tuples(XChildren),
               true = lists:member({<<"text-single">>,
-                                   <<"%u">>, <<"User">>},
+                                   <<"user">>, <<"User">>},
                                   FieldTups),
               true = lists:member({<<"text-single">>,
-                                   <<"displayName">>,
+                                   <<"fn">>,
                                    <<"Full Name">>},
                                   FieldTups)
       end).
@@ -272,60 +266,39 @@ search_open_mnesia(Config) ->
       fun(Client) ->
               DirJID = escalus_config:get_ct({vcard, mnesia, directory_jid}),
               Fields = [#xmlelement{ name = <<"field">> }],
-              Form = escalus_stanza:x_data_form(<<"submit">>, Fields),
-              Query = escalus_stanza:query_el(?NS_SEARCH, [Form]),
-              IQGet = escalus_stanza:iq(DirJID, <<"set">>, [Query]),
-ct:pal("~p~n",[IQGet]),
-              escalus:send(Client, IQGet),
-              Stanza = escalus:wait_for_stanza(Client),
+              Stanza = set_search_iq(Client, DirJID, Fields),
               escalus:assert(is_iq_result, Stanza),
-              Result = ?EL(Stanza, <<"query">>),
-              XData = ?EL(Result, <<"x">>),
-              #xmlelement{ attrs = _XAttrs,
-                           children = XChildren } = XData,
-              Reported = ?EL(XData, <<"reported">>),
-              ReportedFieldTups = field_tuples(Reported#xmlelement.children),
 
               %% Basically test that the right values exist
               %% and map to the right column headings
-              ItemTups = item_tuples(ReportedFieldTups, XChildren),
+              ItemTups = search_result_item_tuples(Stanza),
               ExpectedItemTups =
-                  escalus_config:ct_get({vcard, mnesia, search_results, open}),
-              ExpectedItemTups = ItemTups
+                  escalus_config:get_ct({vcard, mnesia, search_results, open}),
+              list_unordered_key_match(1, ExpectedItemTups, ItemTups)
       end).
 
-search_empty(Config) ->
+search_empty_mnesia(Config) ->
     escalus:story(
-      Config, [{valid, 1}],
-      fun(John) ->
-              DirJID = <<"vjud.example.com">>,
+      Config, [{user1, 1}],
+      fun(Client) ->
+              DirJID = escalus_config:get_ct({vcard, mnesia, directory_jid}),
               Fields = [#xmlelement{
                            name = <<"field">>,
-                           attrs = [{<<"var">>,<<"sn">>}],
+                           attrs = [{<<"var">>, <<"fn">>}],
                            children = [#xmlelement{
                                           name= <<"value">>,
                                           children =
                                               [{xmlcdata,<<"nobody">>}]}]}],
-              Form = escalus_stanza:x_data_form(<<"submit">>, Fields),
-              Query = escalus_stanza:query_el(?NS_SEARCH, [Form]),
-              IQSearch = escalus_stanza:iq(DirJID, <<"set">>, [Query]),
-              escalus:send(John, IQSearch),
-              Stanza = escalus:wait_for_stanza(John),
+              Stanza = set_search_iq(Client, DirJID, Fields),
               escalus:assert(is_iq_result, Stanza),
-              Result = ?EL(Stanza, <<"query">>),
-              XData = ?EL(Result, <<"x">>),
-              #xmlelement{ children = XChildren } = XData,
-              Reported = ?EL(XData, <<"reported">>),
-              ReportedFieldTups = field_tuples(Reported#xmlelement.children),
-
-              [] = item_tuples(ReportedFieldTups, XChildren)
+              [] = search_result_item_tuples(Stanza)
       end).
 
-search_some(Config) ->
+search_some_mnesia(Config) ->
     escalus:story(
-      Config, [{valid, 1}],
-      fun(John) ->
-              DirJID = <<"vjud.example.com">>,
+      Config, [{user2, 1}],
+      fun(Client) ->
+              DirJID = escalus_config:get_ct({vcard, mnesia, directory_jid}),
               MoscowRUBin = escalus_config:get_ct({vcard, common, moscow_ru_utf8}),
               Fields = [#xmlelement{
                            name = <<"field">>,
@@ -334,22 +307,15 @@ search_some(Config) ->
                                           name = <<"value">>,
                                           children =
                                               [{xmlcdata, MoscowRUBin}]}]}],
-              Form = escalus_stanza:x_data_form(<<"submit">>, Fields),
-              Query = escalus_stanza:query_el(?NS_SEARCH, [Form]),
-              IQGet = escalus_stanza:iq(DirJID, <<"set">>, [Query]),
-              escalus:send(John, IQGet),
-              Stanza = escalus:wait_for_stanza(John),
+              Stanza = set_search_iq(Client, DirJID, Fields),
               escalus:assert(is_iq_result, Stanza),
-              Result = ?EL(Stanza, <<"query">>),
-              XData = ?EL(Result, <<"x">>),
-              #xmlelement{ children = XChildren } = XData,
-              Reported = ?EL(XData, <<"reported">>),
-              ReportedFieldTups = field_tuples(Reported#xmlelement.children),
 
               %% Basically test that the right values exist
               %% and map to the right column headings
-              ItemTups = item_tuples(ReportedFieldTups, XChildren),
-              {_, ItemTups} = expected_search_results(example.com_some, Config)
+              ItemTups = search_result_item_tuples(Stanza),
+              ExpectedItemTups =
+                  escalus_config:get_ct({vcard, mnesia, search_results, some}),
+              list_unordered_key_match(1, ExpectedItemTups, ItemTups)
       end).
 
 %%------------------------------------
@@ -557,8 +523,8 @@ item_tuples(ReportedFieldTypes, [_SomeOtherChild | Rest]) ->
 
 %% This tests that at least the values in the ExpectedVCardTups are in the
 %% VCardUnderTest.
-%% Any extra values in the vcard are ignored by this function and should be checked or
-%% rejected elsewhere.
+%% Any extra values in the vcard are ignored by this function and should be
+%% checked or rejected elsewhere.
 %% crash means fail, return means success.
 check_vcard(ExpectedVCardTups, Stanza) ->
     escalus_pred:is_iq(<<"result">>, Stanza),
@@ -580,6 +546,30 @@ check_xml_element([{ExpdFieldName, ExpdCData}|Rest], ElUnderTest) ->
             ct:fail("Expected ~p got ~p~n", [ExpdCData, Else])
     end.
 
+%% Checks that the elements of two lists with matching keys are equal
+%% while the order of the elements does not matter.
+%% Returning means success. Crashing via ct:fail means failure.
+%% Prints the lists in the ct:fail Result term.
+list_unordered_key_match(_, [], _) ->
+    ok;
+list_unordered_key_match(Keypos, [ExpctdTup|Rest], ActualTuples) ->
+    Key = element(Keypos, ExpctdTup),
+    ActualTup = lists:keyfind(Key, Keypos, ActualTuples),
+    case ActualTup of
+        ExpctdTup ->
+            list_unordered_key_match(Keypos, Rest, ActualTuples);
+        _ ->
+            ct:fail("~nExpected ~p~nGot ~p", [ExpctdTup, ActualTup])
+    end.
+
+search_result_item_tuples(Stanza) ->
+    Result = ?EL(Stanza, <<"query">>),
+    XData = ?EL(Result, <<"x">>),
+    #xmlelement{ attrs = _XAttrs,
+                 children = XChildren } = XData,
+    Reported = ?EL(XData, <<"reported">>),
+    ReportedFieldTups = field_tuples(Reported#xmlelement.children),
+    _ItemTups = item_tuples(ReportedFieldTups, XChildren).
 
 %%--------------------------
 %% common actual XMPP exchanges
@@ -587,15 +577,12 @@ check_xml_element([{ExpdFieldName, ExpdCData}|Rest], ElUnderTest) ->
 request_vcard(Client) ->
     IQGet = escalus_stanza:iq(<<"get">>, [vcard([])]),
     escalus:send(Client, IQGet),
-    Stanza = escalus:wait_for_stanza(Client),
-    Stanza.
+    _Stanza = escalus:wait_for_stanza(Client).
 
 request_vcard(JID, Client) ->
     IQGet = escalus_stanza:iq(JID, <<"get">>, [vcard([])]),
     escalus:send(Client, IQGet),
-    Stanza = escalus:wait_for_stanza(Client),
-    Stanza.
-
+    _Stanza = escalus:wait_for_stanza(Client).
 
 update_vcard(Client, Fields) ->
     IQSet = escalus_stanza:iq(<<"set">>, [vcard(Fields)]),
@@ -610,5 +597,12 @@ update_vcard(JID, Client, Fields) ->
 request_disco_info(JID, Client) ->
     Query = escalus_stanza:query_el(?NS_DISCO_INFO, []),
     IQGet = escalus_stanza:iq(JID, <<"get">>, [Query]),
+    escalus:send(Client, IQGet),
+    _Stanza = escalus:wait_for_stanza(Client).
+
+set_search_iq(Client, JID, Fields) ->
+    Form = escalus_stanza:x_data_form(<<"submit">>, Fields),
+    Query = escalus_stanza:query_el(?NS_SEARCH, [Form]),
+    IQGet = escalus_stanza:iq(JID, <<"set">>, [Query]),
     escalus:send(Client, IQGet),
     _Stanza = escalus:wait_for_stanza(Client).

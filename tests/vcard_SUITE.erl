@@ -43,7 +43,8 @@
 %%--------------------------------------------------------------------
 
 all() ->
-    [{group, mnesia}
+    [{group, mnesia},
+     {group, odbc}
     ].
 
 groups() ->
@@ -67,6 +68,25 @@ groups() ->
        ,search_in_service_discovery_mnesia
        ,search_open_limited_mnesia
        ,search_some_limited_mnesia
+      ]},
+     {odbc, [sequence],
+      [update_own_card_odbc
+       ,retrieve_own_card_odbc
+       ,user_doesnt_exist_odbc
+       ,update_other_card_odbc
+       ,retrieve_others_card_odbc
+       ,vcard_service_discovery_odbc
+       ,server_vcard_odbc
+       ,directory_service_vcard_odbc
+       ,request_search_fields_odbc
+       ,search_open_odbc
+       ,search_empty_odbc
+       ,search_some_odbc
+       ,search_not_allowed_odbc
+       ,search_not_in_service_discovery_odbc
+       ,search_in_service_discovery_odbc
+       ,search_open_limited_odbc
+       ,search_some_limited_odbc
       ]}
     ].
 
@@ -80,16 +100,26 @@ suite() ->
 init_per_suite(Config) ->
     ok = ct:require({vcard, mnesia}),
 
-    %% use the relevant users
-    Users = escalus_config:get_config(escalus_vcard_mnesia_users, Config, []),
-    NewConfig = lists:keystore(escalus_users, 1, Config, {escalus_users, Users}),
-
-    escalus_users:create_users(NewConfig, Users),
-    escalus:init_per_suite(NewConfig).
+    escalus:init_per_suite(Config).
 
 end_per_suite(Config) ->
     escalus:end_per_suite(Config).
 
+init_per_group(mnesia, Config) ->
+    %% use the relevant users
+    Users = escalus_config:get_config(escalus_vcard_mnesia_users, Config, []),
+    NewConfig = lists:keystore(escalus_users, 1, Config, {escalus_users, Users}),
+    escalus_users:create_users(NewConfig, Users),
+    NewConfig;
+init_per_group(odbc, Config) ->
+    %% use the relevant users
+    Users = escalus_config:get_config(escalus_vcard_odbc_users, Config, []),
+    NewConfig = lists:keystore(escalus_users, 1, Config, {escalus_users, Users}),
+    escalus_users:create_users(NewConfig, Users),
+    NewConfig.
+
+end_per_group(_,Config) ->
+    Config.
 
 init_per_testcase(CaseName, Config) ->
     escalus:init_per_testcase(CaseName, Config).
@@ -103,6 +133,12 @@ end_per_testcase(CaseName, Config) ->
 %%--------------------------------------------------------------------
 
 update_own_card_mnesia(Config) ->
+    update_own_vcard(mnesia, Config).
+
+update_own_card_odbc(Config) ->
+    update_own_vcard(odbc, Config).
+
+update_own_vcard(GroupName, Config) ->
     escalus:story(
       Config, [{user1, 1}, {user2, 1}, {ltd_search1, 1}, {ltd_search2, 1}],
       fun(Client1, Client2, Client3, Client4) ->
@@ -120,7 +156,7 @@ update_own_card_mnesia(Config) ->
               JID1 = escalus_client:short_jid(Client1),
               Client1VCardTups =
                   escalus_config:get_ct(
-                    {vcard, mnesia, all_search, expected_vcards, JID1}),
+                    {vcard, GroupName, all_search, expected_vcards, JID1}),
               Client1Fields2 = tuples_to_vcard_fields(Client1VCardTups),
               _Client1SetResultStanza2 = update_vcard(Client1, Client1Fields2),
 
@@ -131,7 +167,7 @@ update_own_card_mnesia(Config) ->
               JID2 = escalus_client:short_jid(Client2),
               Client2VCardTups =
                   escalus_config:get_ct(
-                    {vcard, mnesia, all_search, expected_vcards, JID2}),
+                    {vcard, GroupName, all_search, expected_vcards, JID2}),
               Client2Fields = tuples_to_vcard_fields(Client2VCardTups),
               _Client2SetResultStanza = update_vcard(Client2, Client2Fields),
 
@@ -140,18 +176,24 @@ update_own_card_mnesia(Config) ->
               JID3 = escalus_client:short_jid(Client3),
               Client3VCardTups =
                   escalus_config:get_ct(
-                    {vcard, mnesia, all_search, expected_vcards, JID3}),
+                    {vcard, GroupName, all_search, expected_vcards, JID3}),
               Client3Fields = tuples_to_vcard_fields(Client3VCardTups),
               _Client3SetResultStanza = update_vcard(Client3, Client3Fields),
               JID4 = escalus_client:short_jid(Client4),
               Client4VCardTups =
                   escalus_config:get_ct(
-                    {vcard, mnesia, all_search, expected_vcards, JID4}),
+                    {vcard, GroupName, all_search, expected_vcards, JID4}),
               Client4Fields = tuples_to_vcard_fields(Client4VCardTups),
               _Client4SetResultStanza = update_vcard(Client4, Client4Fields)
       end).
 
 retrieve_own_card_mnesia(Config) ->
+    retrieve_own_card(mnesia, Config).
+
+retrieve_own_card_odbc(Config) ->
+    retrieve_own_card(odbc, Config).
+
+retrieve_own_card(GroupName, Config) ->
     escalus:story(
       Config, [{user1, 1}],
       fun(Client) ->
@@ -159,7 +201,7 @@ retrieve_own_card_mnesia(Config) ->
               JID = escalus_client:short_jid(Client),
               ClientVCardTups =
                   escalus_config:get_ct(
-                    {vcard, mnesia, all_search, expected_vcards, JID}),
+                    {vcard, GroupName, all_search, expected_vcards, JID}),
               check_vcard(ClientVCardTups, Stanza)
       end).
 
@@ -169,17 +211,29 @@ retrieve_own_card_mnesia(Config) ->
 %% return a stanza error, which SHOULD be either
 %% <service-unavailable/> or <item-not-found/>
 user_doesnt_exist_mnesia(Config) ->
+    user_doesnt_exist(mnesia, Config).
+
+user_doesnt_exist_odbc(Config) ->
+    user_doesnt_exist(odbc, Config).
+
+user_doesnt_exist(GroupName, Config) ->
     escalus:story(
       Config, [{user1, 1}],
       fun(Client) ->
               BadJID = escalus_config:get_ct(
-                         {vcard, mnesia, all_search, nonexistent_jid}),
+                         {vcard, GroupName, all_search, nonexistent_jid}),
               Stanza = request_vcard(BadJID, Client),
               escalus:assert(is_error, [<<"cancel">>,
                                         <<"service-unavailable">>], Stanza)
       end).
 
 update_other_card_mnesia(Config) ->
+    update_other_card(mnesia, Config).
+
+update_other_card_odbc(Config) ->
+    update_other_card(odbc, Config).
+
+update_other_card(GroupName, Config) ->
     escalus:story(
       Config, [{user1, 1}, {user2, 1}],
       fun(Client, OtherClient) ->
@@ -192,10 +246,16 @@ update_other_card_mnesia(Config) ->
                                         <<"not-allowed">>], Stanza),
 
               %% check that nothing was changed
-              retrieve_own_card_mnesia(Config)
+              retrieve_own_card(GroupName, Config)
       end).
 
 retrieve_others_card_mnesia(Config) ->
+    retrieve_others_card(mnesia, Config).
+
+retrieve_others_card_odbc(Config) ->
+    retrieve_others_card(odbc, Config).
+
+retrieve_others_card(GroupName, Config) ->
     escalus:story(
       Config, [{user1, 1}, {user2, 1}],
       fun(Client, OtherClient) ->
@@ -204,7 +264,7 @@ retrieve_others_card_mnesia(Config) ->
 
               OtherClientVCardTups =
                   escalus_config:get_ct(
-                    {vcard, mnesia, all_search, expected_vcards, OtherJID}),
+                    {vcard, GroupName, all_search, expected_vcards, OtherJID}),
               check_vcard(OtherClientVCardTups, Stanza),
 
               StreetMD5 = escalus_config:get_ct({vcard, common, utf8_street_md5}),
@@ -220,37 +280,55 @@ retrieve_others_card_mnesia(Config) ->
       end).
 
 server_vcard_mnesia(Config) ->
+    server_vcard(mnesia, Config).
+
+server_vcard_odbc(Config) ->
+    server_vcard(odbc, Config).
+
+server_vcard(GroupName, Config) ->
     escalus:story(
       Config, [{user1, 1}],
       fun(Client) ->
               ServJID = escalus_config:get_ct(
-                          {vcard, mnesia, all_search, server_jid}),
+                          {vcard, GroupName, all_search, server_jid}),
               Stanza = request_vcard(ServJID, Client),
               ServerVCardTups =
                   escalus_config:get_ct(
-                    {vcard, mnesia, all_search, expected_vcards, ServJID}),
+                    {vcard, GroupName, all_search, expected_vcards, ServJID}),
               check_vcard(ServerVCardTups, Stanza)
       end).
 
 directory_service_vcard_mnesia(Config) ->
+    directory_service_vcard(mnesia, Config).
+
+directory_service_vcard_odbc(Config) ->
+    directory_service_vcard(odbc, Config).
+
+directory_service_vcard(GroupName, Config) ->
     escalus:story(
       Config, [{user1, 1}],
       fun(Client) ->
               DirJID = escalus_config:get_ct(
-                         {vcard, mnesia, all_search, directory_jid}),
+                         {vcard, GroupName, all_search, directory_jid}),
               Stanza = request_vcard(DirJID, Client),
               DirVCardTups =
                   escalus_config:get_ct(
-                    {vcard, mnesia, all_search, expected_vcards, DirJID}),
+                    {vcard, GroupName, all_search, expected_vcards, DirJID}),
               check_vcard(DirVCardTups, Stanza)
       end).
 
 vcard_service_discovery_mnesia(Config) ->
+    vcard_service_discovery(mnesia, Config).
+
+vcard_service_discovery_odbc(Config) ->
+    vcard_service_discovery(odbc, Config).
+
+vcard_service_discovery(GroupName, Config) ->
     escalus:story(
       Config, [{user1, 1}],
       fun(Client) ->
               ServJID = escalus_config:get_ct(
-                          {vcard, mnesia, all_search, server_jid}),
+                          {vcard, GroupName, all_search, server_jid}),
               Stanza = request_disco_info(ServJID, Client),
               escalus:assert(is_iq_result, Stanza),
               escalus:assert(has_feature, [<<"vcard-temp">>], Stanza)
@@ -264,11 +342,17 @@ vcard_service_discovery_mnesia(Config) ->
 %% all.search.domain
 
 request_search_fields_mnesia(Config) ->
+    request_search_fields(mnesia, Config).
+
+request_search_fields_odbc(Config) ->
+    request_search_fields(odbc, Config).
+
+request_search_fields(GroupName, Config) ->
     escalus:story(
       Config, [{user1, 1}],
       fun(Client) ->
               DirJID = escalus_config:get_ct(
-                         {vcard, mnesia, all_search, directory_jid}),
+                         {vcard, GroupName, all_search, directory_jid}),
               Query = escalus_stanza:query_el(?NS_SEARCH, []),
               IQGet = escalus_stanza:iq(DirJID, <<"get">>, [Query]),
               escalus:send(Client, IQGet),
@@ -288,11 +372,17 @@ request_search_fields_mnesia(Config) ->
       end).
 
 search_open_mnesia(Config) ->
+    search_open(mnesia, Config).
+
+search_open_odbc(Config) ->
+    search_open(odbc, Config).
+
+search_open(GroupName, Config) ->
     escalus:story(
       Config, [{user1, 1}],
       fun(Client) ->
               DirJID = escalus_config:get_ct(
-                         {vcard, mnesia, all_search, directory_jid}),
+                         {vcard, GroupName, all_search, directory_jid}),
               Fields = [#xmlelement{ name = <<"field">> }],
               Stanza = set_search_iq(Client, DirJID, Fields),
               escalus:assert(is_iq_result, Stanza),
@@ -302,17 +392,22 @@ search_open_mnesia(Config) ->
               ItemTups = search_result_item_tuples(Stanza),
               ExpectedItemTups =
                   escalus_config:get_ct(
-                    {vcard, mnesia, all_search, search_results, open}),
-%ct:pal("~p~n~p~n",[ExpectedItemTups, ItemTups]),
+                    {vcard, GroupName, all_search, search_results, open}),
               list_unordered_key_match(1, ExpectedItemTups, ItemTups)
       end).
 
 search_empty_mnesia(Config) ->
+    search_empty(mnesia, Config).
+
+search_empty_odbc(Config) ->
+    search_empty(odbc, Config).
+
+search_empty(GroupName, Config) ->
     escalus:story(
       Config, [{user1, 1}],
       fun(Client) ->
               DirJID = escalus_config:get_ct(
-                         {vcard, mnesia, all_search, directory_jid}),
+                         {vcard, GroupName, all_search, directory_jid}),
               Fields = [#xmlelement{
                            name = <<"field">>,
                            attrs = [{<<"var">>, <<"fn">>}],
@@ -326,11 +421,17 @@ search_empty_mnesia(Config) ->
       end).
 
 search_some_mnesia(Config) ->
+    search_some(mnesia, Config).
+
+search_some_odbc(Config) ->
+    search_some(odbc, Config).
+
+search_some(GroupName, Config) ->
     escalus:story(
       Config, [{user2, 1}],
       fun(Client) ->
               DirJID = escalus_config:get_ct(
-                         {vcard, mnesia, all_search, directory_jid}),
+                         {vcard, GroupName, all_search, directory_jid}),
               MoscowRUBin = escalus_config:get_ct({vcard, common, moscow_ru_utf8}),
               Fields = [#xmlelement{
                            name = <<"field">>,
@@ -347,7 +448,7 @@ search_some_mnesia(Config) ->
               ItemTups = search_result_item_tuples(Stanza),
               ExpectedItemTups =
                   escalus_config:get_ct(
-                    {vcard, mnesia, all_search, search_results, some}),
+                    {vcard, GroupName, all_search, search_results, some}),
               list_unordered_key_match(1, ExpectedItemTups, ItemTups)
       end).
 
@@ -356,11 +457,17 @@ search_some_mnesia(Config) ->
 %% @limited.search.domain
 
 search_open_limited_mnesia(Config) ->
+    search_open_limited(mnesia, Config).
+
+search_open_limited_odbc(Config) ->
+    search_open_limited(odbc, Config).
+
+search_open_limited(GroupName, Config) ->
     escalus:story(
       Config, [{ltd_search1, 1}],
       fun(Client) ->
               DirJID = escalus_config:get_ct(
-                         {vcard, mnesia, ltd_search, directory_jid}),
+                         {vcard, GroupName, ltd_search, directory_jid}),
               Fields = [#xmlelement{ name = <<"field">>}],
               Stanza = set_search_iq(Client, DirJID, Fields),
               escalus:assert(is_iq_result, Stanza),
@@ -369,11 +476,17 @@ search_open_limited_mnesia(Config) ->
       end).
 
 search_some_limited_mnesia(Config) ->
+    search_some_limited(mnesia, Config).
+
+search_some_limited_odbc(Config) ->
+    search_some_limited(odbc, Config).
+
+search_some_limited(GroupName, Config) ->
     escalus:story(
       Config, [{ltd_search1, 1}],
       fun(Client) ->
               DirJID = escalus_config:get_ct(
-                         {vcard, mnesia, ltd_search, directory_jid}),
+                         {vcard, GroupName, ltd_search, directory_jid}),
               Server = escalus_client:server(Client),
               Fields = [#xmlelement{
                            name = <<"field">>,
@@ -390,18 +503,24 @@ search_some_limited_mnesia(Config) ->
               {_Start, _Length} = binary:match(SomeJID, <<"@", Server/binary>>)
       end).
 
+search_in_service_discovery_mnesia(Config) ->
+    search_in_service_discovery(mnesia, Config).
+
+search_in_service_discovery_odbc(Config) ->
+    search_in_service_discovery(odbc, Config).
+
 %% disco#items to limited.search.domain says directory.limited.search.domain exists
 %% disco#info to directory.limited.search.domain says it has feature jabber:iq:search
 %% and an <identity category='directory' type='user'/>
 %%   http://xmpp.org/extensions/xep-0030.html#registrar-reg-identity
-search_in_service_discovery_mnesia(Config) ->
+search_in_service_discovery(GroupName, Config) ->
     escalus:story(
       Config, [{ltd_search1, 1}],
       fun(Client) ->
               ServJID = escalus_config:get_ct(
-                         {vcard, mnesia, ltd_search, server_jid}),
+                         {vcard, GroupName, ltd_search, server_jid}),
               DirJID = escalus_config:get_ct(
-                         {vcard, mnesia, ltd_search, directory_jid}),
+                         {vcard, GroupName, ltd_search, directory_jid}),
 
               %% Item
               ItemsStanza = get_disco_items_iq(ServJID, Client),
@@ -425,26 +544,38 @@ search_in_service_discovery_mnesia(Config) ->
 %% @no.search.domain
 
 search_not_allowed_mnesia(Config) ->
+    search_not_allowed(mnesia, Config).
+
+search_not_allowed_odbc(Config) ->
+    search_not_allowed(odbc, Config).
+
+search_not_allowed(GroupName, Config) ->
     escalus:story(
       Config, [{no_search, 1}],
       fun(Client) ->
               DirJID = escalus_config:get_ct(
-                         {vcard, mnesia, no_search, directory_jid}),
+                         {vcard, GroupName, no_search, directory_jid}),
               Fields = [#xmlelement{ name = <<"field">>}],
               Stanza = set_search_iq(Client, DirJID, Fields),
               escalus:assert(is_error, [<<"cancel">>,
                                         <<"service-unavailable">>], Stanza)
       end).
 
-%% disco#items to no.search.domain doesn't say vjud.no.search.domain exists
 search_not_in_service_discovery_mnesia(Config) ->
+    search_not_in_service_discovery(mnesia, Config).
+
+search_not_in_service_discovery_odbc(Config) ->
+    search_not_in_service_discovery(odbc, Config).
+
+%% disco#items to no.search.domain doesn't say vjud.no.search.domain exists
+search_not_in_service_discovery(GroupName, Config) ->
     escalus:story(
       Config, [{no_search, 1}],
       fun(Client) ->
               ServJID = escalus_config:get_ct(
-                         {vcard, mnesia, no_search, server_jid}),
+                         {vcard, GroupName, no_search, server_jid}),
               DirJID = escalus_config:get_ct(
-                         {vcard, mnesia, no_search, directory_jid}),
+                         {vcard, GroupName, no_search, directory_jid}),
               %% Item
               ItemsStanza = get_disco_items_iq(ServJID, Client),
               escalus:assert(is_iq_result, ItemsStanza),

@@ -66,6 +66,7 @@ groups() ->
        ,search_not_in_service_discovery_mnesia
        ,search_in_service_discovery_mnesia
        ,search_open_limited_mnesia
+       ,search_some_limited_mnesia
       ]}
     ].
 
@@ -103,8 +104,8 @@ end_per_testcase(CaseName, Config) ->
 
 update_own_card_mnesia(Config) ->
     escalus:story(
-      Config, [{user1, 1}, {user2, 1}],
-      fun(Client1, Client2) ->
+      Config, [{user1, 1}, {user2, 1}, {ltd_search1, 1}, {ltd_search2, 1}],
+      fun(Client1, Client2, Client3, Client4) ->
               %% set some initial value different from the actual test data
               %% so we know it really got updated and wasn't just old data
               Client1Fields = [vcard_cdata_field(<<"FN">>, <<"Old name">>)],
@@ -121,7 +122,7 @@ update_own_card_mnesia(Config) ->
                   escalus_config:get_ct(
                     {vcard, mnesia, all_search, expected_vcards, JID1}),
               Client1Fields2 = tuples_to_vcard_fields(Client1VCardTups),
-              _SetResltStanza2 = update_vcard(Client1, Client1Fields2),
+              _Client1SetResultStanza2 = update_vcard(Client1, Client1Fields2),
 
               %% might as well check this more serious update too
               Client1GetResultStanza2 = request_vcard(Client1),
@@ -132,7 +133,22 @@ update_own_card_mnesia(Config) ->
                   escalus_config:get_ct(
                     {vcard, mnesia, all_search, expected_vcards, JID2}),
               Client2Fields = tuples_to_vcard_fields(Client2VCardTups),
-              _Stanza = update_vcard(Client2, Client2Fields)
+              _Client2SetResultStanza = update_vcard(Client2, Client2Fields),
+
+              %% two users for limited.search.modvcard with some field equal so
+              %% that we can check that {matches, 1} is enforced.
+              JID3 = escalus_client:short_jid(Client3),
+              Client3VCardTups =
+                  escalus_config:get_ct(
+                    {vcard, mnesia, all_search, expected_vcards, JID3}),
+              Client3Fields = tuples_to_vcard_fields(Client3VCardTups),
+              _Client3SetResultStanza = update_vcard(Client3, Client3Fields),
+              JID4 = escalus_client:short_jid(Client4),
+              Client4VCardTups =
+                  escalus_config:get_ct(
+                    {vcard, mnesia, all_search, expected_vcards, JID4}),
+              Client4Fields = tuples_to_vcard_fields(Client4VCardTups),
+              _Client4SetResultStanza = update_vcard(Client4, Client4Fields)
       end).
 
 retrieve_own_card_mnesia(Config) ->
@@ -245,7 +261,7 @@ vcard_service_discovery_mnesia(Config) ->
 %%
 %%--------------------------------------------------------------------
 
-%% example.com
+%% all.search.domain
 
 request_search_fields_mnesia(Config) ->
     escalus:story(
@@ -287,6 +303,7 @@ search_open_mnesia(Config) ->
               ExpectedItemTups =
                   escalus_config:get_ct(
                     {vcard, mnesia, all_search, search_results, open}),
+%ct:pal("~p~n~p~n",[ExpectedItemTups, ItemTups]),
               list_unordered_key_match(1, ExpectedItemTups, ItemTups)
       end).
 
@@ -317,7 +334,7 @@ search_some_mnesia(Config) ->
               MoscowRUBin = escalus_config:get_ct({vcard, common, moscow_ru_utf8}),
               Fields = [#xmlelement{
                            name = <<"field">>,
-                           attrs = [{<<"var">>,<<"l">>}],
+                           attrs = [{<<"var">>,<<"locality">>}],
                            children = [#xmlelement{
                                           name = <<"value">>,
                                           children =
@@ -336,39 +353,50 @@ search_some_mnesia(Config) ->
 
 
 %%------------------------------------
-%% @limited.search.ldap
+%% @limited.search.domain
 
-search_open_limited(Config) ->
+search_open_limited_mnesia(Config) ->
     escalus:story(
-      Config, [{ltd_search, 1}],
-      fun(LtdUsr) ->
-              DirJID = <<"directory.limited.search.ldap">>,
+      Config, [{ltd_search1, 1}],
+      fun(Client) ->
+              DirJID = escalus_config:get_ct(
+                         {vcard, mnesia, ltd_search, directory_jid}),
               Fields = [#xmlelement{ name = <<"field">>}],
-              Form = escalus_stanza:x_data_form(<<"submit">>, Fields),
-              Query = escalus_stanza:query_el(?NS_SEARCH, [Form]),
-              IQGet = escalus_stanza:iq(DirJID, <<"set">>, [Query]),
-              escalus:send(LtdUsr, IQGet),
-              Stanza = escalus:wait_for_stanza(LtdUsr),
+              Stanza = set_search_iq(Client, DirJID, Fields),
               escalus:assert(is_iq_result, Stanza),
-              Result = ?EL(Stanza, <<"query">>),
-              XData = ?EL(Result, <<"x">>),
-              #xmlelement{ children = XChildren } = XData,
-              Reported = ?EL(XData, <<"reported">>),
-              ReportedFieldTups = field_tuples(Reported#xmlelement.children),
-              ItemTups = item_tuples(ReportedFieldTups, XChildren),
-
-              %% exactly one result returned and its JID domain is correct
-              [{SomeJID, _JIDsFields}] = ItemTups,
-              {_Start, _Length} = binary:match(SomeJID, <<"@limited.search.ldap">>)
+              %% {allow_return_all, false}
+              [] = search_result_item_tuples(Stanza)
       end).
 
-%% disco#items to limited.search.ldap says directory.limited.search.ldap exists
-%% disco#info to directory.limited.search.ldap says it has feature jabber:iq:search
+search_some_limited_mnesia(Config) ->
+    escalus:story(
+      Config, [{ltd_search1, 1}],
+      fun(Client) ->
+              DirJID = escalus_config:get_ct(
+                         {vcard, mnesia, ltd_search, directory_jid}),
+              Server = escalus_client:server(Client),
+              Fields = [#xmlelement{
+                           name = <<"field">>,
+                           attrs = [{<<"var">>,<<"last">>}],
+                           children = [#xmlelement{
+                                          name = <<"value">>,
+                                          children =
+                                              [{xmlcdata, <<"Doe">>}]}]}],
+              Stanza = set_search_iq(Client, DirJID, Fields),
+              escalus:assert(is_iq_result, Stanza),
+              ItemTups = search_result_item_tuples(Stanza),
+              %% exactly one result returned and its JID domain is correct
+              [{SomeJID, _JIDsFields}] = ItemTups,
+              {_Start, _Length} = binary:match(SomeJID, <<"@", Server/binary>>)
+      end).
+
+%% disco#items to limited.search.domain says directory.limited.search.domain exists
+%% disco#info to directory.limited.search.domain says it has feature jabber:iq:search
 %% and an <identity category='directory' type='user'/>
 %%   http://xmpp.org/extensions/xep-0030.html#registrar-reg-identity
 search_in_service_discovery_mnesia(Config) ->
     escalus:story(
-      Config, [{ltd_search, 1}],
+      Config, [{ltd_search1, 1}],
       fun(Client) ->
               ServJID = escalus_config:get_ct(
                          {vcard, mnesia, ltd_search, server_jid}),
@@ -394,7 +422,7 @@ search_in_service_discovery_mnesia(Config) ->
       end).
 
 %%------------------------------------
-%% @no.search.ldap
+%% @no.search.domain
 
 search_not_allowed_mnesia(Config) ->
     escalus:story(
@@ -408,7 +436,7 @@ search_not_allowed_mnesia(Config) ->
                                         <<"service-unavailable">>], Stanza)
       end).
 
-%% disco#items to no.search.ldap says no vjud.no.search.ldap exists
+%% disco#items to no.search.domain doesn't say vjud.no.search.domain exists
 search_not_in_service_discovery_mnesia(Config) ->
     escalus:story(
       Config, [{no_search, 1}],
@@ -562,14 +590,23 @@ check_xml_element([{ExpdFieldName, ExpdCData}|Rest], ElUnderTest) ->
 %% while the order of the elements does not matter.
 %% Returning means success. Crashing via ct:fail means failure.
 %% Prints the lists in the ct:fail Result term.
-list_unordered_key_match(_, [], _) ->
+list_unordered_key_match(Keypos, Expected, Actual) ->
+    case length(Actual) of
+        ActualLength when ActualLength == length(Expected) ->
+            list_unordered_key_match2(Keypos, Expected, Actual);
+        ActualLength ->
+            ct:fail("Expected size ~p, actual size ~p~nExpected: ~p~nActual: ~p",
+                    [length(Expected), ActualLength, Expected, Actual])
+    end.
+
+list_unordered_key_match2(_, [], _) ->
     ok;
-list_unordered_key_match(Keypos, [ExpctdTup|Rest], ActualTuples) ->
+list_unordered_key_match2(Keypos, [ExpctdTup|Rest], ActualTuples) ->
     Key = element(Keypos, ExpctdTup),
     ActualTup = lists:keyfind(Key, Keypos, ActualTuples),
     case ActualTup of
         ExpctdTup ->
-            list_unordered_key_match(Keypos, Rest, ActualTuples);
+            list_unordered_key_match2(Keypos, Rest, ActualTuples);
         _ ->
             ct:fail("~nExpected ~p~nGot ~p", [ExpctdTup, ActualTup])
     end.

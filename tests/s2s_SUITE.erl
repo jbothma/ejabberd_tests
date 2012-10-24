@@ -43,13 +43,15 @@ suite() ->
 %%%===================================================================
 
 init_per_suite(Config0) ->
-    NewUsers = ct:get_config(escalus_server2_users) ++ ct:get_config(escalus_users),
-    io:format("~p~n", [NewUsers]),
+    NewUsers = ct:get_config(escalus_server2_users)
+        ++ ct:get_config(escalus_users),
     Config1 = escalus:init_per_suite(Config0),
     escalus_users:create_users(Config1, NewUsers).
 
 end_per_suite(Config) ->
-    escalus:delete_users(Config),
+    NewUsers = ct:get_config(escalus_server2_users)
+        ++ ct:get_config(escalus_users),
+    escalus_users:delete_users(Config, NewUsers),
     escalus:end_per_suite(Config).
 
 init_per_group(_GroupName, Config) ->

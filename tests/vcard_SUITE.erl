@@ -198,12 +198,19 @@ update_own_vcard(GroupName, Config) ->
               <<"Old name">> =
                   stanza_get_vcard_field_cdata(Client1GetResultStanza, <<"FN">>),
 
+              {ok, PhotoBin} =
+                  file:read_file(?config(data_dir, Config) ++ "pixel.jpg"),
+              PhotoB64 = base64:encode(PhotoBin),
+              BINVALEl = vcard_cdata_field("BINVAL", PhotoB64),
+              PhotoField = vcard_field("PHOTO", BINVALEl),
+
               %% Setup test data for remaining tests
               JID1 = escalus_client:short_jid(Client1),
               Client1VCardTups =
                   escalus_config:get_ct(
                     {vcard, GroupName, all_search, expected_vcards, JID1}),
-              Client1Fields2 = tuples_to_vcard_fields(Client1VCardTups),
+              Client1Fields2 =
+                  [PhotoField | tuples_to_vcard_fields(Client1VCardTups)],
               _Client1SetResultStanza2 = update_vcard(Client1, Client1Fields2),
 
               %% might as well check this more serious update too
@@ -234,20 +241,7 @@ update_own_vcard(GroupName, Config) ->
       end).
 
 retrieve_own_card_ldap(Config) ->
-    escalus:story(
-      Config, [{user1, 1}],
-      fun(Client) ->
-              Stanza = request_vcard(Client),
-              JID = escalus_client:short_jid(Client),
-              ClientVCardTups =
-                  escalus_config:get_ct(
-                    {vcard, ldap, all_search, expected_vcards, JID}),
-              check_vcard(ClientVCardTups, Stanza),
-
-              PHOTO = stanza_get_vcard_field(Stanza, <<"PHOTO">>),
-              PhotoB64MD5 = escalus_config:get_ct({vcard, common, photo_b64_md5}),
-              PhotoB64MD5 = crypto:md5(?EL_CD(PHOTO, <<"BINVAL">>))
-      end).
+    retrieve_own_card(ldap, Config).
 
 retrieve_own_card_mnesia(Config) ->
     retrieve_own_card(mnesia, Config).
@@ -264,7 +258,12 @@ retrieve_own_card(GroupName, Config) ->
               ClientVCardTups =
                   escalus_config:get_ct(
                     {vcard, GroupName, all_search, expected_vcards, JID}),
-              check_vcard(ClientVCardTups, Stanza)
+              check_vcard(ClientVCardTups, Stanza),
+
+              PHOTO = stanza_get_vcard_field(Stanza, <<"PHOTO">>),
+              PhotoB64MD5 =
+                  escalus_config:get_ct({vcard, GroupName, photo_b64_md5}),
+              PhotoB64MD5 = crypto:md5(?EL_CD(PHOTO, <<"BINVAL">>))
       end).
 
 
@@ -897,7 +896,7 @@ search_result_item_tuples(Stanza) ->
 request_vcard(Client) ->
     IQGet = escalus_stanza:iq(<<"get">>, [vcard([])]),
     escalus:send(Client, IQGet),
-    _Stanza = escalus:wait_for_stanza(Client).
+    _Stanza = escalus:wait_for_stanza(Client, 10000).
 
 request_vcard(JID, Client) ->
     IQGet = escalus_stanza:iq(JID, <<"get">>, [vcard([])]),
@@ -907,7 +906,8 @@ request_vcard(JID, Client) ->
 update_vcard(Client, Fields) ->
     IQSet = escalus_stanza:iq(<<"set">>, [vcard(Fields)]),
     escalus:send(Client, IQSet),
-    _Stanza = escalus:wait_for_stanza(Client).
+    %% now that we're setting photos it can take a while.
+    _Stanza = escalus:wait_for_stanza(Client, 10000).
 
 update_vcard(JID, Client, Fields) ->
     IQSet = escalus_stanza:iq(JID, <<"set">>, [vcard(Fields)]),

@@ -99,7 +99,7 @@ groups() ->
        ,vcard_service_discovery_ldap
        ,server_vcard_ldap
        ,directory_service_vcard_ldap
-       ,req_search_fields_ldap
+       ,request_search_fields_ldap
        ,search_open_ldap
        ,search_empty_ldap
        ,search_some_ldap
@@ -141,7 +141,15 @@ init_per_group(ldap, Config) ->
     NewConfig = lists:keystore(escalus_users, 1, Config, {escalus_users, Users}),
     escalus:init_per_suite(NewConfig).
 
-end_per_group(_,Config) ->
+end_per_group(mnesia,Config) ->
+    Users = escalus_config:get_config(escalus_vcard_mnesia_users, Config, []),
+    escalus_users:delete_users(Config, Users),
+    Config;
+end_per_group(odbc, Config) ->
+    Users = escalus_config:get_config(escalus_vcard_odbc_users, Config, []),
+    escalus_users:delete_users(Config, Users),
+    Config;
+end_per_group(_, Config) ->
     Config.
 
 init_per_testcase(CaseName, Config) ->
@@ -157,7 +165,7 @@ end_per_testcase(CaseName, Config) ->
 
 update_own_card_ldap(Config) ->
     escalus:story(
-      Config, [{valid, 1}],
+      Config, [{user1, 1}],
       fun(Client) ->
               Fields = [vcard_cdata_field(<<"FN">>, <<"New name">>)],
               Stanza = update_vcard(Client, Fields),
@@ -227,7 +235,7 @@ update_own_vcard(GroupName, Config) ->
 
 retrieve_own_card_ldap(Config) ->
     escalus:story(
-      Config, [{valid, 1}],
+      Config, [{user1, 1}],
       fun(Client) ->
               Stanza = request_vcard(Client),
               JID = escalus_client:short_jid(Client),
@@ -260,21 +268,8 @@ retrieve_own_card(GroupName, Config) ->
       end).
 
 
-%% If no vCard exists or the user does not exist, the server MUST
-%% return a stanza error, which SHOULD be either
-%% <service-unavailable/> or <item-not-found/>
 user_doesnt_exist_ldap(Config) ->
-    escalus:story(
-      Config, [{valid, 1}],
-      fun(John) ->
-              BadJID = <<"nobody@example.com">>,
-              IQGet = escalus_stanza:iq(BadJID, <<"get">>, vcard([])),
-              escalus:send(John, IQGet),
-
-              Stanza = escalus:wait_for_stanza(John),
-              escalus:assert(is_error, [<<"cancel">>,
-                                        <<"service-unavailable">>], Stanza)
-      end).
+    user_doesnt_exist(ldap, Config).
 
 user_doesnt_exist_mnesia(Config) ->
     user_doesnt_exist(mnesia, Config).
@@ -282,6 +277,9 @@ user_doesnt_exist_mnesia(Config) ->
 user_doesnt_exist_odbc(Config) ->
     user_doesnt_exist(odbc, Config).
 
+%% If no vCard exists or the user does not exist, the server MUST
+%% return a stanza error, which SHOULD be either
+%% <service-unavailable/> or <item-not-found/>
 user_doesnt_exist(GroupName, Config) ->
     escalus:story(
       Config, [{user1, 1}],
@@ -295,13 +293,10 @@ user_doesnt_exist(GroupName, Config) ->
 
 filtered_user_is_nonexistent_ldap(Config) ->
     escalus:story(
-      Config, [{valid, 1}],
-      fun(John) ->
+      Config, [{user1, 1}],
+      fun(Client) ->
               FilteredJID = <<"tom@example.com">>,
-              IQGet = escalus_stanza:iq(FilteredJID, <<"get">>, [vcard([])]),
-              escalus:send(John, IQGet),
-
-              Stanza = escalus:wait_for_stanza(John),
+              Stanza = request_vcard(FilteredJID, Client),
               escalus:assert(is_error, [<<"cancel">>,
                                         <<"service-unavailable">>], Stanza)
       end).
@@ -329,31 +324,7 @@ update_other_card(GroupName, Config) ->
       end).
 
 retrieve_others_card_ldap(Config) ->
-    escalus:story(
-      Config, [{valid, 1}, {valid2, 1}],
-      fun(John, Other) ->
-              OtherJID = escalus_client:short_jid(Other),
-              IQGet = escalus_stanza:iq(OtherJID, <<"get">>, [vcard([])]),
-              escalus:send(John, IQGet),
-
-              Stanza = escalus:wait_for_stanza(John),
-              escalus_pred:is_iq(<<"result">>, Stanza),
-
-              VCard = ?EL(Stanza, <<"vCard">>),
-              check_vcard(Config, OtherJID, VCard),
-
-              {_, StreetMD5} =
-                  vcard_data(dave_example.com_street_md5, Config),
-              ADR = ?EL(VCard, <<"ADR">>),
-              StreetMD5 = crypto:md5(?EL_CD(ADR, <<"STREET">>)),
-
-              %% In accordance with XMPP Core [5], a compliant server MUST
-              %% respond on behalf of the requestor and not forward the IQ to
-              %% the requestee's connected resource.
-
-              Error = (catch escalus:wait_for_stanza(Other)),
-              assert_timeout_when_waiting_for_stanza(Error)
-      end).
+    retrieve_others_card(ldap, Config).
 
 retrieve_others_card_mnesia(Config) ->
     retrieve_others_card(mnesia, Config).
@@ -386,19 +357,7 @@ retrieve_others_card(GroupName, Config) ->
       end).
 
 server_vcard_ldap(Config) ->
-    escalus:story(
-      Config, [{valid, 1}],
-      fun(John) ->
-              ServJID = <<"example.com">>,
-              IQGet = escalus_stanza:iq(ServJID, <<"get">>, [vcard([])]),
-              escalus:send(John, IQGet),
-
-              Stanza = escalus:wait_for_stanza(John),
-              escalus_pred:is_iq(<<"result">>, Stanza),
-
-              VCard = ?EL(Stanza, <<"vCard">>),
-              check_vcard(Config, ServJID, VCard)
-      end).
+    server_vcard(ldap, Config).
 
 server_vcard_mnesia(Config) ->
     server_vcard(mnesia, Config).
@@ -420,19 +379,7 @@ server_vcard(GroupName, Config) ->
       end).
 
 directory_service_vcard_ldap(Config) ->
-    escalus:story(
-      Config, [{valid, 1}],
-      fun(John) ->
-              DirJID = <<"vjud.example.com">>,
-              IQGet = escalus_stanza:iq(DirJID, <<"get">>, [vcard([])]),
-              escalus:send(John, IQGet),
-
-              Stanza = escalus:wait_for_stanza(John),
-              escalus_pred:is_iq(<<"result">>, Stanza),
-
-              VCard = ?EL(Stanza, <<"vCard">>),
-              check_vcard(Config, DirJID, VCard)
-      end).
+    directory_service_vcard(ldap, Config).
 
 directory_service_vcard_mnesia(Config) ->
     directory_service_vcard(mnesia, Config).
@@ -454,16 +401,7 @@ directory_service_vcard(GroupName, Config) ->
       end).
 
 vcard_service_discovery_ldap(Config) ->
-    escalus:story(
-      Config, [{valid, 1}],
-      fun(John) ->
-              Query = escalus_stanza:query_el(?NS_DISCO_INFO, []),
-              IQGet = escalus_stanza:iq(<<"example.com">>, <<"get">>, [Query]),
-              escalus:send(John, IQGet),
-              Stanza = escalus:wait_for_stanza(John),
-              escalus:assert(is_iq_result, Stanza),
-              escalus:assert(has_feature, [<<"vcard-temp">>], Stanza)
-    end).
+    vcard_service_discovery(ldap, Config).
 
 vcard_service_discovery_mnesia(Config) ->
     vcard_service_discovery(mnesia, Config).
@@ -487,31 +425,11 @@ vcard_service_discovery(GroupName, Config) ->
 %%
 %%--------------------------------------------------------------------
 
-%% example.com
-
-req_search_fields_ldap(Config) ->
-escalus:story(
-      Config, [{valid, 1}],
-      fun(John) ->
-              DirJID = <<"vjud.example.com">>,
-              Query = escalus_stanza:query_el(?NS_SEARCH, []),
-              IQGet = escalus_stanza:iq(DirJID, <<"get">>, [Query]),
-              escalus:send(John, IQGet),
-              Stanza = escalus:wait_for_stanza(John),
-              escalus:assert(is_iq_result, Stanza),
-              Result = ?EL(Stanza, <<"query">>),
-              XData = ?EL(Result, <<"x">>),
-              #xmlelement{ children = XChildren } = XData,
-              FieldTups = field_tuples(XChildren),
-              true = lists:member({<<"text-single">>, <<"%u">>, <<"User">>},
-                                  FieldTups),
-              true = lists:member({<<"text-single">>,
-                                   <<"displayName">>,
-                                   <<"Full Name">>},
-                                  FieldTups)
-      end).
 
 %% all.search.domain
+
+request_search_fields_ldap(Config) ->
+    request_search_fields(ldap, Config).
 
 request_search_fields_mnesia(Config) ->
     request_search_fields(mnesia, Config).
@@ -523,6 +441,10 @@ request_search_fields(GroupName, Config) ->
     escalus:story(
       Config, [{user1, 1}],
       fun(Client) ->
+              {Field1Var, Field1Name} =
+                  escalus_config:get_ct({vcard, GroupName, locality_field}),
+              {Field2Var, Field2Name} =
+                  escalus_config:get_ct({vcard, GroupName, fullname_field}),
               DirJID = escalus_config:get_ct(
                          {vcard, GroupName, all_search, directory_jid}),
               Query = escalus_stanza:query_el(?NS_SEARCH, []),
@@ -535,39 +457,15 @@ request_search_fields(GroupName, Config) ->
               #xmlelement{ children = XChildren } = XData,
               FieldTups = field_tuples(XChildren),
               true = lists:member({<<"text-single">>,
-                                   <<"user">>, <<"User">>},
+                                   Field1Var, Field1Name},
                                   FieldTups),
               true = lists:member({<<"text-single">>,
-                                   <<"fn">>,
-                                   <<"Full Name">>},
+                                   Field2Var, Field2Name},
                                   FieldTups)
       end).
 
 search_open_ldap(Config) ->
-    escalus:story(
-      Config, [{valid, 1}],
-      fun(John) ->
-              DirJID = <<"vjud.example.com">>,
-              Fields = [#xmlelement{ name = <<"field">>}],
-              Form = escalus_stanza:x_data_form(<<"submit">>, Fields),
-              Query = escalus_stanza:query_el(?NS_SEARCH, [Form]),
-              IQGet = escalus_stanza:iq(DirJID, <<"set">>, [Query]),
-              escalus:send(John, IQGet),
-              Stanza = escalus:wait_for_stanza(John),
-              escalus:assert(is_iq_result, Stanza),
-              Result = ?EL(Stanza, <<"query">>),
-              XData = ?EL(Result, <<"x">>),
-              #xmlelement{ attrs = _XAttrs,
-                           children = XChildren } = XData,
-              Reported = ?EL(XData, <<"reported">>),
-              ReportedFieldTups = field_tuples(Reported#xmlelement.children),
-
-              %% Basically test that the right values exist
-              %% and map to the right column headings
-              ItemTups = item_tuples(ReportedFieldTups, XChildren),
-              {_, ItemTups} = expected_search_results(example.com_open, Config)
-      end).
-
+    search_open(ldap, Config).
 
 search_open_mnesia(Config) ->
     search_open(mnesia, Config).
@@ -595,31 +493,7 @@ search_open(GroupName, Config) ->
       end).
 
 search_empty_ldap(Config) ->
-    escalus:story(
-      Config, [{valid, 1}],
-      fun(John) ->
-              DirJID = <<"vjud.example.com">>,
-              Fields = [#xmlelement{
-                           name = <<"field">>,
-                           attrs = [{<<"var">>,<<"sn">>}],
-                           children = [#xmlelement{
-                                          name= <<"value">>,
-                                          children =
-                                              [{xmlcdata,<<"nobody">>}]}]}],
-              Form = escalus_stanza:x_data_form(<<"submit">>, Fields),
-              Query = escalus_stanza:query_el(?NS_SEARCH, [Form]),
-              IQSearch = escalus_stanza:iq(DirJID, <<"set">>, [Query]),
-              escalus:send(John, IQSearch),
-              Stanza = escalus:wait_for_stanza(John),
-              escalus:assert(is_iq_result, Stanza),
-              Result = ?EL(Stanza, <<"query">>),
-              XData = ?EL(Result, <<"x">>),
-              #xmlelement{ children = XChildren } = XData,
-              Reported = ?EL(XData, <<"reported">>),
-              ReportedFieldTups = field_tuples(Reported#xmlelement.children),
-
-              [] = item_tuples(ReportedFieldTups, XChildren)
-      end).
+    search_empty(ldap, Config).
 
 search_empty_mnesia(Config) ->
     search_empty(mnesia, Config).
@@ -635,7 +509,7 @@ search_empty(GroupName, Config) ->
                          {vcard, GroupName, all_search, directory_jid}),
               Fields = [#xmlelement{
                            name = <<"field">>,
-                           attrs = [{<<"var">>, <<"fn">>}],
+                           attrs = [{<<"var">>, <<"orgname">>}],
                            children = [#xmlelement{
                                           name= <<"value">>,
                                           children =
@@ -646,35 +520,7 @@ search_empty(GroupName, Config) ->
       end).
 
 search_some_ldap(Config) ->
-    escalus:story(
-      Config, [{valid, 1}],
-      fun(John) ->
-              DirJID = <<"vjud.example.com">>,
-              {_, MoscowRUBin} = vcard_data(moscow_ru_utf8, Config),
-              Fields = [#xmlelement{
-                           name = <<"field">>,
-                           attrs = [{<<"var">>,<<"l">>}],
-                           children = [#xmlelement{
-                                          name = <<"value">>,
-                                          children =
-                                              [{xmlcdata, MoscowRUBin}]}]}],
-              Form = escalus_stanza:x_data_form(<<"submit">>, Fields),
-              Query = escalus_stanza:query_el(?NS_SEARCH, [Form]),
-              IQGet = escalus_stanza:iq(DirJID, <<"set">>, [Query]),
-              escalus:send(John, IQGet),
-              Stanza = escalus:wait_for_stanza(John),
-              escalus:assert(is_iq_result, Stanza),
-              Result = ?EL(Stanza, <<"query">>),
-              XData = ?EL(Result, <<"x">>),
-              #xmlelement{ children = XChildren } = XData,
-              Reported = ?EL(XData, <<"reported">>),
-              ReportedFieldTups = field_tuples(Reported#xmlelement.children),
-
-              %% Basically test that the right values exist
-              %% and map to the right column headings
-              ItemTups = item_tuples(ReportedFieldTups, XChildren),
-              {_, ItemTups} = expected_search_results(example.com_some, Config)
-      end).
+    search_some(ldap, Config).
 
 search_some_mnesia(Config) ->
     search_some(mnesia, Config).
@@ -686,12 +532,14 @@ search_some(GroupName, Config) ->
     escalus:story(
       Config, [{user2, 1}],
       fun(Client) ->
+              {FieldVar, _FieldName} =
+                  escalus_config:get_ct({vcard, GroupName, locality_field}),
               DirJID = escalus_config:get_ct(
                          {vcard, GroupName, all_search, directory_jid}),
               MoscowRUBin = escalus_config:get_ct({vcard, common, moscow_ru_utf8}),
               Fields = [#xmlelement{
                            name = <<"field">>,
-                           attrs = [{<<"var">>,<<"locality">>}],
+                           attrs = [{<<"var">>, FieldVar}],
                            children = [#xmlelement{
                                           name = <<"value">>,
                                           children =
@@ -710,11 +558,11 @@ search_some(GroupName, Config) ->
 
 
 %%------------------------------------
-%% @limited.search.ldap
+%% @limited.search.domain
 
 search_open_limited_ldap(Config) ->
     escalus:story(
-      Config, [{ltd_search, 1}],
+      Config, [{ltd_search1, 1}],
       fun(LtdUsr) ->
               DirJID = <<"directory.limited.search.ldap">>,
               Fields = [#xmlelement{ name = <<"field">>}],
@@ -735,9 +583,6 @@ search_open_limited_ldap(Config) ->
               [{SomeJID, _JIDsFields}] = ItemTups,
               {_Start, _Length} = binary:match(SomeJID, <<"@limited.search.ldap">>)
       end).
-
-%%------------------------------------
-%% @limited.search.domain
 
 search_open_limited_mnesia(Config) ->
     search_open_limited(mnesia, Config).
@@ -786,37 +631,9 @@ search_some_limited(GroupName, Config) ->
               {_Start, _Length} = binary:match(SomeJID, <<"@", Server/binary>>)
       end).
 
-%% disco#items to limited.search.ldap says directory.limited.search.ldap exists
-%% disco#info to directory.limited.search.ldap says it has feature jabber:iq:search
-%% and an <identity category='directory' type='user'/>
-%%   http://xmpp.org/extensions/xep-0030.html#registrar-reg-identity
+
 search_in_service_discovery_ldap(Config) ->
-    escalus:story(
-      Config, [{ltd_search, 1}],
-      fun(LtdUsr) ->
-              ServJID = <<"limited.search.ldap">>,
-              DirJID = <<"directory.limited.search.ldap">>,
-
-              %% Item
-              ItemsQuery = escalus_stanza:query_el(?NS_DISCO_ITEMS, []),
-              ItemsIQGet = escalus_stanza:iq(ServJID, <<"get">>, [ItemsQuery]),
-              escalus:send(LtdUsr, ItemsIQGet),
-              ItemsStanza = escalus:wait_for_stanza(LtdUsr),
-              escalus:assert(is_iq_result, ItemsStanza),
-              escalus:assert(has_item, [DirJID], ItemsStanza),
-
-              %% Feature
-              InfoQuery = escalus_stanza:query_el(?NS_DISCO_INFO, []),
-              InfoIQGet = escalus_stanza:iq(DirJID, <<"get">>, [InfoQuery]),
-              escalus:send(LtdUsr, InfoIQGet),
-              InfoStanza = escalus:wait_for_stanza(LtdUsr),
-              escalus:assert(is_iq_result, InfoStanza),
-              escalus:assert(has_feature, [?NS_SEARCH], InfoStanza),
-
-              %% Identity
-              escalus:assert(has_identity, [<<"directory">>,
-                                            <<"user">>], InfoStanza)
-      end).
+    search_in_service_discovery(ldap, Config).
 
 search_in_service_discovery_mnesia(Config) ->
     search_in_service_discovery(mnesia, Config).
@@ -856,24 +673,10 @@ search_in_service_discovery(GroupName, Config) ->
       end).
 
 %%------------------------------------
-%% @no.search.ldap
+%% @no.search.domain
 
 search_not_allowed_ldap(Config) ->
-    escalus:story(
-      Config, [{no_search, 1}],
-      fun(NoSearchUsr) ->
-              DirJID = <<"vjud.no.search.ldap">>,
-              Fields = [#xmlelement{ name = <<"field">>}],
-              Form = escalus_stanza:x_data_form(<<"submit">>, Fields),
-              Query = escalus_stanza:query_el(?NS_SEARCH, [Form]),
-              IQGet = escalus_stanza:iq(DirJID, <<"set">>, [Query]),
-              escalus:send(NoSearchUsr, IQGet),
-              Stanza = escalus:wait_for_stanza(NoSearchUsr),
-              escalus:assert(is_error, [<<"cancel">>,
-                                        <<"service-unavailable">>], Stanza)
-      end).
-
-%% @no.search.domain
+    search_not_allowed(ldap, Config).
 
 search_not_allowed_mnesia(Config) ->
     search_not_allowed(mnesia, Config).
@@ -894,21 +697,8 @@ search_not_allowed(GroupName, Config) ->
       end).
 
 
-%% disco#items to no.search.ldap says no vjud.limited.search.ldap exists
 search_not_in_service_discovery_ldap(Config) ->
-    escalus:story(
-      Config, [{ltd_search, 1}],
-      fun(LtdUsr) ->
-              ServJID = <<"no.search.ldap">>,
-              DirJID = <<"vjud.no.search.ldap">>,
-              %% Item
-              ItemsQuery = escalus_stanza:query_el(?NS_DISCO_ITEMS, []),
-              ItemsIQGet = escalus_stanza:iq(ServJID, <<"get">>, [ItemsQuery]),
-              escalus:send(LtdUsr, ItemsIQGet),
-              ItemsStanza = escalus:wait_for_stanza(LtdUsr),
-              escalus:assert(is_iq_result, ItemsStanza),
-              escalus:assert(has_no_such_item, [DirJID], ItemsStanza)
-      end).
+    search_not_in_service_discovery(ldap, Config).
 
 search_not_in_service_discovery_mnesia(Config) ->
     search_not_in_service_discovery(mnesia, Config).

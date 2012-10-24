@@ -70,7 +70,7 @@ end_per_testcase(CaseName, Config) ->
 %%--------------------------------------------------------------------
 
 login(Config) ->
-    John = get_ldap_user(valid, Config),
+    John = get_ldap_user(user1, Config),
     {ok, _, _} = escalus_connection:start(John).
 
 login_negative(Config) ->
@@ -104,7 +104,7 @@ login_fail_local_filter(Config) ->
 change_password(Config) ->
     ServJID = <<"example.com">>,
     escalus:story(
-      Config, [{valid, 1}],
+      Config, [{user1, 1}],
       fun(User) ->
               test_change_password(ServJID, User, <<"john_changed_password">>)
       end),

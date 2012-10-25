@@ -126,18 +126,18 @@ end_per_suite(Config) ->
 
 init_per_group(mnesia, Config) ->
     %% use the relevant users
-    Users = escalus_config:get_config(escalus_vcard_mnesia_users, Config, []),
+    Users = ct:get_config(escalus_vcard_mnesia_users),
     NewConfig = lists:keystore(escalus_users, 1, Config, {escalus_users, Users}),
     escalus_users:create_users(NewConfig, Users),
     NewConfig;
 init_per_group(odbc, Config) ->
     %% use the relevant users
-    Users = escalus_config:get_config(escalus_vcard_odbc_users, Config, []),
+    Users = ct:get_config(escalus_vcard_odbc_users),
     NewConfig = lists:keystore(escalus_users, 1, Config, {escalus_users, Users}),
     escalus_users:create_users(NewConfig, Users),
     NewConfig;
 init_per_group(ldap, Config) ->
-    Users = escalus_config:get_config(escalus_ldap_users, Config, []),
+    Users = ct:get_config(escalus_ldap_users),
     NewConfig = lists:keystore(escalus_users, 1, Config, {escalus_users, Users}),
     escalus:init_per_suite(NewConfig).
 
@@ -184,16 +184,31 @@ update_own_card_mnesia(Config) ->
 update_own_card_odbc(Config) ->
     update_own_vcard(odbc, Config).
 
+%% This test is used to test a client updating their vCard.
+%% This includes testing that mod_vcard_xupdate broadcasts presence stanzas
+%% on behalf of clients where it is enabled.
+%% Test vCard data is then set using the mechanism under test for the remainder
+%% of the tests in the sequence.
 update_own_vcard(GroupName, Config) ->
     escalus:story(
       Config, [{user1, 1}, {user2, 1}, {ltd_search1, 1}, {ltd_search2, 1}],
       fun(Client1, Client2, Client3, Client4) ->
-              %% set some initial value different from the actual test data
+              %% user2 should subscribe to user1 to check that user2 gets
+              %% presence update from user1 when user1 changes their photo.
+              subscribe(Client2, Client1),
+
+              %% set sanity check vCard different from the actual test data
               %% so we know it really got updated and wasn't just old data
               Client1Fields = [vcard_cdata_field(<<"FN">>, <<"Old name">>)],
               Client1SetResultStanza = update_vcard(Client1, Client1Fields),
               escalus:assert(is_iq_result, Client1SetResultStanza),
 
+              %% user1 gets their own presence update
+              check_xupdate_with_empty_photo(Client1, Client1),
+              %% user2 gets user1's presence update
+              check_xupdate_with_empty_photo(Client1, Client2),
+
+              %% Check that the sanity check vCard was set.
               Client1GetResultStanza = request_vcard(Client1),
               <<"Old name">> =
                   stanza_get_vcard_field_cdata(Client1GetResultStanza, <<"FN">>),
@@ -203,6 +218,7 @@ update_own_vcard(GroupName, Config) ->
               PhotoB64 = base64:encode(PhotoBin),
               BINVALEl = vcard_cdata_field("BINVAL", PhotoB64),
               PhotoField = vcard_field("PHOTO", BINVALEl),
+              PhotoSHA1 = sha_hex(PhotoBin),
 
               %% Setup test data for remaining tests
               JID1 = escalus_client:short_jid(Client1),
@@ -213,6 +229,11 @@ update_own_vcard(GroupName, Config) ->
                   [PhotoField | tuples_to_vcard_fields(Client1VCardTups)],
               _Client1SetResultStanza2 = update_vcard(Client1, Client1Fields2),
 
+              %% user1 gets their own presence update with photo hash
+              check_xupdate_with_photo(Client1, Client1, PhotoSHA1),
+              %% user2 gets user1's presence update with photo hash
+              check_xupdate_with_photo(Client1, Client2, PhotoSHA1),
+
               %% might as well check this more serious update too
               Client1GetResultStanza2 = request_vcard(Client1),
               check_vcard(Client1VCardTups, Client1GetResultStanza2),
@@ -221,8 +242,12 @@ update_own_vcard(GroupName, Config) ->
               Client2VCardTups =
                   escalus_config:get_ct(
                     {vcard, GroupName, all_search, expected_vcards, JID2}),
-              Client2Fields = tuples_to_vcard_fields(Client2VCardTups),
+              Client2Fields =
+                  [PhotoField | tuples_to_vcard_fields(Client2VCardTups)],
               _Client2SetResultStanza = update_vcard(Client2, Client2Fields),
+
+              %% user2 gets their own presence update with photo hash
+              check_xupdate_with_photo(Client2, Client2, PhotoSHA1),
 
               %% two users for limited.search.modvcard with some field equal so
               %% that we can check that {matches, 1} is enforced.
@@ -232,12 +257,16 @@ update_own_vcard(GroupName, Config) ->
                     {vcard, GroupName, all_search, expected_vcards, JID3}),
               Client3Fields = tuples_to_vcard_fields(Client3VCardTups),
               _Client3SetResultStanza = update_vcard(Client3, Client3Fields),
+
               JID4 = escalus_client:short_jid(Client4),
               Client4VCardTups =
                   escalus_config:get_ct(
                     {vcard, GroupName, all_search, expected_vcards, JID4}),
               Client4Fields = tuples_to_vcard_fields(Client4VCardTups),
-              _Client4SetResultStanza = update_vcard(Client4, Client4Fields)
+              _Client4SetResultStanza = update_vcard(Client4, Client4Fields),
+
+              %% clean up to avoid unexpected presence stanzas in the end
+              unsubscribe(Client2, Client1)
       end).
 
 retrieve_own_card_ldap(Config) ->
@@ -737,6 +766,76 @@ expected_search_results(Key, Config) ->
 assert_timeout_when_waiting_for_stanza(Error) ->
     {'EXIT', {timeout_when_waiting_for_stanza,_}} = Error.
 
+check_xupdate_with_photo(SenderClient, ReceiverClient, SHA1) ->
+    XUpdatePresence = escalus:wait_for_stanza(ReceiverClient),
+    escalus:assert(is_presence, XUpdatePresence),
+    assert_presence_xupdate_with_photo(
+      XUpdatePresence,
+      escalus_client:full_jid(SenderClient), SHA1).
+
+assert_presence_xupdate_with_photo(Stanza, From, SHA1) ->
+    escalus:assert(is_presence, Stanza),
+    From = exml_query:path(Stanza, [{attr, <<"from">>}]),
+    ?NS_VCARD_UPDATE = exml_query:path(Stanza, [{element, <<"x">>},
+                                                {attr, <<"xmlns">>}]),
+    SHA1 = exml_query:path(Stanza, [{element, <<"x">>},
+                                    {element, <<"photo">>},
+                                    cdata]).
+
+check_xupdate_with_empty_photo(SenderClient, ReceiverClient) ->
+    XUpdatePresence = escalus:wait_for_stanza(ReceiverClient),
+    escalus:assert(is_presence, XUpdatePresence),
+    assert_presence_xupdate_with_empty_photo(
+      XUpdatePresence,
+      escalus_client:full_jid(SenderClient)).
+
+assert_presence_xupdate_with_empty_photo(Stanza, From) ->
+    escalus:assert(is_presence, Stanza),
+    From = exml_query:path(Stanza, [{attr, <<"from">>}]),
+    ?NS_VCARD_UPDATE = exml_query:path(Stanza, [{element, <<"x">>},
+                                                {attr, <<"xmlns">>}]),
+    #xmlelement{ name = <<"photo">>,
+                 attrs = [],
+                 children = [] } =
+        exml_query:path(Stanza, [{element, <<"x">>},
+                                 {element, <<"photo">>}]).
+
+%% adapted from
+%% http://www.enchantedage.com/hex-format-hash-for-md5-sha1-sha256-and-sha512
+sha_hex(Bin) ->
+    SHABin = crypto:sha(Bin),
+    <<SHAInt:160/big-unsigned-integer>> = SHABin,
+    list_to_binary(lists:flatten(io_lib:format("~40.16.0b", [SHAInt]))).
+
+
+subscribe(Subscriber, Subscribee) ->
+    ReqStanza = escalus_stanza:presence_direct(
+                  escalus_client:short_jid(Subscribee), <<"subscribe">>),
+    escalus:send(Subscriber, ReqStanza),
+    escalus:wait_for_stanza(Subscriber), %% drop subscription pending
+    escalus:wait_for_stanza(Subscribee), %% drop subscribe request
+    %% Subscribee SHOULD do a roster set, but we won't
+    AccStanza = escalus_stanza:presence_direct(
+                  escalus_client:short_jid(Subscriber), <<"subscribed">>),
+    escalus:send(Subscribee, AccStanza),
+    escalus:wait_for_stanza(Subscribee), %% drop new roster
+    escalus:wait_for_stanza(Subscriber), %% drop drop new roster
+    escalus:wait_for_stanza(Subscriber), %% drop subscribed presence
+    escalus:wait_for_stanza(Subscriber). %% drop Subscribee available presence
+
+unsubscribe(Subscriber, Subscribee) ->
+    ReqStanza = escalus_stanza:presence_direct(
+                  escalus_client:short_jid(Subscribee), <<"unsubscribe">>),
+    escalus:send(Subscriber, ReqStanza),
+    escalus:wait_for_stanza(Subscriber), %% drop new roster
+    escalus:wait_for_stanza(Subscribee), %% drop unsubscribe request
+    escalus:wait_for_stanza(Subscribee), %% drop new roster
+    AccStanza = escalus_stanza:presence_direct(
+                  escalus_client:short_jid(Subscriber), <<"unsubscribed">>),
+    escalus:send(Subscribee, AccStanza),
+    %% SHOULD send unavailable presence from all of the contact's available
+    %% resources to the user
+    escalus:wait_for_stanza(Subscriber). %% drop unsubscribed
 
 %%----------------------
 %% xmlelement shortcuts

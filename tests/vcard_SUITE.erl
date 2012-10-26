@@ -129,28 +129,35 @@ init_per_group(mnesia, Config) ->
     Users = ct:get_config(escalus_vcard_mnesia_users),
     NewConfig = lists:keystore(escalus_users, 1, Config, {escalus_users, Users}),
     escalus_users:create_users(NewConfig, Users),
-    NewConfig;
+    NewConfig2 = escalus_cleaner:start(NewConfig),
+    setup_test_vcards(mnesia, NewConfig2),
+    escalus_cleaner:stop(NewConfig2),
+    NewConfig2;
 init_per_group(odbc, Config) ->
     %% use the relevant users
     Users = ct:get_config(escalus_vcard_odbc_users),
     NewConfig = lists:keystore(escalus_users, 1, Config, {escalus_users, Users}),
     escalus_users:create_users(NewConfig, Users),
-    NewConfig;
+    NewConfig2 = escalus_cleaner:start(NewConfig),
+    setup_test_vcards(odbc, NewConfig2),
+    escalus_cleaner:stop(NewConfig2),
+    NewConfig2;
 init_per_group(ldap, Config) ->
     Users = ct:get_config(escalus_ldap_users),
     NewConfig = lists:keystore(escalus_users, 1, Config, {escalus_users, Users}),
     escalus:init_per_suite(NewConfig).
 
 end_per_group(mnesia,Config) ->
-    Users = escalus_config:get_config(escalus_vcard_mnesia_users, Config, []),
+    Users = ct:get_config(escalus_vcard_mnesia_users),
     escalus_users:delete_users(Config, Users),
     Config;
 end_per_group(odbc, Config) ->
-    Users = escalus_config:get_config(escalus_vcard_odbc_users, Config, []),
+    Users = ct:get_config(escalus_vcard_odbc_users),
     escalus_users:delete_users(Config, Users),
     Config;
 end_per_group(_, Config) ->
     Config.
+
 
 init_per_testcase(CaseName, Config) ->
     escalus:init_per_testcase(CaseName, Config).
@@ -158,6 +165,45 @@ init_per_testcase(CaseName, Config) ->
 end_per_testcase(CaseName, Config) ->
     escalus:end_per_testcase(CaseName, Config).
 
+setup_test_vcards(GroupName, Config) ->
+    escalus:story(
+      Config, [{user1, 1}, {user2, 1}, {ltd_search1, 1}, {ltd_search2, 1}],
+      fun(Client1, Client2, Client3, Client4) ->
+              {PhotoField, _PhotoSHA1} = test_photo(Config),
+
+              JID1 = escalus_client:short_jid(Client1),
+              Client1VCardTups =
+                  escalus_config:get_ct(
+                    {vcard, GroupName, all_search, expected_vcards, JID1}),
+              Client1Fields2 =
+                  [PhotoField | tuples_to_vcard_fields(Client1VCardTups)],
+              _Client1SetResultStanza2 = update_vcard(Client1, Client1Fields2),
+
+              JID2 = escalus_client:short_jid(Client2),
+              Client2VCardTups =
+                  escalus_config:get_ct(
+                    {vcard, GroupName, all_search, expected_vcards, JID2}),
+              Client2Fields =
+                  [PhotoField | tuples_to_vcard_fields(Client2VCardTups)],
+              _Client2SetResultStanza = update_vcard(Client2, Client2Fields),
+
+              %% two users for limited.search.modvcard with some field equal so
+              %% that we can check that {matches, 1} is enforced.
+              JID3 = escalus_client:short_jid(Client3),
+              Client3VCardTups =
+                  escalus_config:get_ct(
+                    {vcard, GroupName, all_search, expected_vcards, JID3}),
+              Client3Fields = tuples_to_vcard_fields(Client3VCardTups),
+              _Client3SetResultStanza = update_vcard(Client3, Client3Fields),
+
+              JID4 = escalus_client:short_jid(Client4),
+              Client4VCardTups =
+                  escalus_config:get_ct(
+                    {vcard, GroupName, all_search, expected_vcards, JID4}),
+              Client4Fields = tuples_to_vcard_fields(Client4VCardTups),
+              _Client4SetResultStanza = update_vcard(Client4, Client4Fields),
+              ok
+      end).
 
 %%--------------------------------------------------------------------
 %% XEP-0054: vcard-temp Test cases
@@ -187,14 +233,21 @@ update_own_card_odbc(Config) ->
 %% This test is used to test a client updating their vCard.
 %% This includes testing that mod_vcard_xupdate broadcasts presence stanzas
 %% on behalf of clients where it is enabled.
-%% Test vCard data is then set using the mechanism under test for the remainder
-%% of the tests in the sequence.
 update_own_vcard(GroupName, Config) ->
     escalus:story(
-      Config, [{user1, 1}, {user2, 1}, {ltd_search1, 1}, {ltd_search2, 1}],
-      fun(Client1, Client2, Client3, Client4) ->
+      Config, [{user1, 1}, {user2, 1}],
+      fun(Client1, Client2) ->
+              {PhotoField, PhotoSHA1} = test_photo(Config),
+
               %% user2 should subscribe to user1 to check that user2 gets
               %% presence update from user1 when user1 changes their photo.
+              %% The subscribe has to happen in the test case story and not
+              %% init_per_testcase because the extra presence stanzas when this
+              %% story starts mess up
+              %% escalus_story and I don't think it's worth making it it support
+              %% extra presences just for this yet.
+              %% The unsubscribe is best in end_per_testcase so that other tests
+              %% can continue if this fails.
               subscribe(Client2, Client1),
 
               %% set sanity check vCard different from the actual test data
@@ -213,14 +266,9 @@ update_own_vcard(GroupName, Config) ->
               <<"Old name">> =
                   stanza_get_vcard_field_cdata(Client1GetResultStanza, <<"FN">>),
 
-              {ok, PhotoBin} =
-                  file:read_file(?config(data_dir, Config) ++ "pixel.jpg"),
-              PhotoB64 = base64:encode(PhotoBin),
-              BINVALEl = vcard_cdata_field("BINVAL", PhotoB64),
-              PhotoField = vcard_field("PHOTO", BINVALEl),
-              PhotoSHA1 = sha_hex(PhotoBin),
-
-              %% Setup test data for remaining tests
+              %% reset user1 vCard to the data used in the rest of the tests.
+              %% This should also be done in the end_per_case in case this case
+              %% fails, but it's good to thoroughly test updating here.
               JID1 = escalus_client:short_jid(Client1),
               Client1VCardTups =
                   escalus_config:get_ct(
@@ -234,38 +282,15 @@ update_own_vcard(GroupName, Config) ->
               %% user2 gets user1's presence update with photo hash
               check_xupdate_with_photo(Client1, Client2, PhotoSHA1),
 
-              %% might as well check this more serious update too
+              %% check this more serious update
               Client1GetResultStanza2 = request_vcard(Client1),
               check_vcard(Client1VCardTups, Client1GetResultStanza2),
 
-              JID2 = escalus_client:short_jid(Client2),
-              Client2VCardTups =
-                  escalus_config:get_ct(
-                    {vcard, GroupName, all_search, expected_vcards, JID2}),
-              Client2Fields =
-                  [PhotoField | tuples_to_vcard_fields(Client2VCardTups)],
-              _Client2SetResultStanza = update_vcard(Client2, Client2Fields),
-
-              %% user2 gets their own presence update with photo hash
-              check_xupdate_with_photo(Client2, Client2, PhotoSHA1),
-
-              %% two users for limited.search.modvcard with some field equal so
-              %% that we can check that {matches, 1} is enforced.
-              JID3 = escalus_client:short_jid(Client3),
-              Client3VCardTups =
-                  escalus_config:get_ct(
-                    {vcard, GroupName, all_search, expected_vcards, JID3}),
-              Client3Fields = tuples_to_vcard_fields(Client3VCardTups),
-              _Client3SetResultStanza = update_vcard(Client3, Client3Fields),
-
-              JID4 = escalus_client:short_jid(Client4),
-              Client4VCardTups =
-                  escalus_config:get_ct(
-                    {vcard, GroupName, all_search, expected_vcards, JID4}),
-              Client4Fields = tuples_to_vcard_fields(Client4VCardTups),
-              _Client4SetResultStanza = update_vcard(Client4, Client4Fields),
-
-              %% clean up to avoid unexpected presence stanzas in the end
+              %% clean up to avoid unexpected presence stanzas in other tests.
+              %% Would be nice to have this in end_per_testcase but again,
+              %% escalus_story would have to have an option to ignore
+              %% an arbitrary number of presences if a user has subscriptions
+              %% at the beginning of a story.
               unsubscribe(Client2, Client1)
       end).
 
@@ -836,6 +861,14 @@ unsubscribe(Subscriber, Subscribee) ->
     %% SHOULD send unavailable presence from all of the contact's available
     %% resources to the user
     escalus:wait_for_stanza(Subscriber). %% drop unsubscribed
+
+test_photo(Config) ->
+    {ok, PhotoBin} = file:read_file(?config(data_dir, Config) ++ "pixel.jpg"),
+    PhotoB64 = base64:encode(PhotoBin),
+    BINVALEl = vcard_cdata_field("BINVAL", PhotoB64),
+    PhotoField = vcard_field("PHOTO", BINVALEl),
+    PhotoSHA1 = sha_hex(PhotoBin),
+    {PhotoField, PhotoSHA1}.
 
 %%----------------------
 %% xmlelement shortcuts
